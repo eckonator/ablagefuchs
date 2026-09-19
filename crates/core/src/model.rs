@@ -12,6 +12,28 @@ pub struct Rect {
     pub h: f32,
 }
 
+impl Rect {
+    pub fn right(&self) -> f32 {
+        self.x + self.w
+    }
+    pub fn bottom(&self) -> f32 {
+        self.y + self.h
+    }
+    pub fn center_y(&self) -> f32 {
+        self.y + self.h / 2.0
+    }
+    /// Kleinstes Rechteck, das beide umschließt.
+    pub fn union(&self, o: &Rect) -> Rect {
+        let (x, y) = (self.x.min(o.x), self.y.min(o.y));
+        Rect {
+            x,
+            y,
+            w: self.right().max(o.right()) - x,
+            h: self.bottom().max(o.bottom()) - y,
+        }
+    }
+}
+
 /// Ein Wort mit Lage und Schriftmerkmalen.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Word {
