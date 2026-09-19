@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/pdf", "crates/ocr", "cli", "app", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Markus Eckert"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/eckonator/ablagefuchs"
+
+[workspace.dependencies]
+af-core = { path = "crates/core" }
+af-pdf = { path = "crates/pdf" }
+af-ocr = { path = "crates/ocr" }
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+lopdf = "0.45"
+# Version der pdfium-Bibliothek muss zu `PDFIUM_VERSION` in xtask passen
+pdfium-render = { version = "0.9", default-features = false, features = ["pdfium_7881", "thread_safe"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

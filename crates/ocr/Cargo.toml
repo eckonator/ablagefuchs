@@ -1,0 +1,13 @@
+[package]
+name = "af-ocr"
+description = "Texterkennung für Ablagefuchs (Apple Vision, Windows.Media.Ocr, Tesseract)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+af-core.workspace = true
+anyhow.workspace = true

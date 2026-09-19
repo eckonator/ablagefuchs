@@ -1,0 +1,15 @@
+[package]
+name = "ablagefuchs"
+description = "Gescannte PDFs sichten und sinnvoll umbenennen"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+af-core.workspace = true
+log.workspace = true
+env_logger.workspace = true
+eframe = { version = "0.36", features = ["glow"] }
