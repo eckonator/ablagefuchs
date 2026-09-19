@@ -8,6 +8,7 @@
 mod analyze;
 pub mod company;
 pub mod dates;
+pub mod files;
 pub mod invoice;
 pub mod layout;
 mod model;
