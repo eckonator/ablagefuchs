@@ -52,6 +52,8 @@ pub struct Settings {
     /// zuletzt geöffnete Eingangsordner, neuester zuerst
     pub recent_inboxes: Vec<PathBuf>,
     pub show_file_list: bool,
+    /// Fundstellen in der Vorschau farbig markieren
+    pub show_highlights: bool,
     pub zoom: f32,
 }
 
@@ -69,6 +71,7 @@ impl Default for Settings {
             folder_template: "{jahr}/{unternehmen}".to_string(),
             recent_inboxes: Vec::new(),
             show_file_list: true,
+            show_highlights: true,
             zoom: 1.0,
         }
     }

@@ -33,6 +33,8 @@ pub struct Preview {
     pub page: usize,
     pub width: u32,
     pub texture: egui::TextureHandle,
+    /// Seitengröße in Punkt, um Fundstellen (in Punkt) aufs Bild umzurechnen
+    pub page_size_pt: egui::Vec2,
 }
 
 pub struct Entry {
@@ -124,6 +126,26 @@ pub enum Action {
     Page(usize),
     Zoom(f32),
     SettingsChanged,
+    /// Datum aus dem Dokument übernehmen (Klick auf ein unterstrichenes Datum)
+    SetDate(NaiveDate),
+    /// Feld fokussieren (Klick auf eine Markierung)
+    Focus(FieldFocus),
+    /// Text in der Vorschau markiert: Menü an dieser Stelle anbieten
+    Selection {
+        text: String,
+        pos: egui::Pos2,
+    },
+    ApplySelection(FieldFocus),
+    CloseSelection,
+    ToggleHighlights,
+}
+
+/// Ausgewählter Text aus der Vorschau, der als Feld übernommen werden kann.
+struct SelectionMenu {
+    text: String,
+    pos: egui::Pos2,
+    /// Fläche des Menüs im letzten Bild (Klick daneben schließt es)
+    rect: Option<egui::Rect>,
 }
 
 /// Feld, das im nächsten Bild den Fokus bekommen soll.
@@ -170,6 +192,7 @@ pub struct App {
     focus: Option<FieldFocus>,
     preview_width: f32,
     applied_theme: Option<ThemeSetting>,
+    selection: Option<SelectionMenu>,
 }
 
 impl App {
@@ -181,6 +204,8 @@ impl App {
     ) -> Self {
         theme::apply(&cc.egui_ctx);
         crate::fonts::install(&cc.egui_ctx);
+        // ⌘ +/− zoomt die Vorschau, nicht die ganze Oberfläche
+        cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let persist = !dev.isolated();
         let template = Template::parse(&settings.template);
         let mut app = App {
@@ -199,6 +224,7 @@ impl App {
             focus: None,
             preview_width: 600.0,
             applied_theme: None,
+            selection: None,
             settings,
             dev,
         };
@@ -343,7 +369,13 @@ impl App {
                             let image = egui::ColorImage::from_rgba_unmultiplied([img.width, img.height], &img.rgba);
                             let texture =
                                 ctx.load_texture(format!("seite-{id}-{page}"), image, egui::TextureOptions::LINEAR);
-                            e.preview = Some(Preview { page, width, texture });
+                            let page_size_pt = egui::vec2(img.page_width_pt, img.page_height_pt);
+                            e.preview = Some(Preview {
+                                page,
+                                width,
+                                texture,
+                                page_size_pt,
+                            });
                         }
                         Err(err) => log::warn!("Vorschau {}: {err}", e.path.display()),
                     }
@@ -394,6 +426,7 @@ impl App {
     fn select(&mut self, i: usize) {
         if i < self.entries.len() {
             self.current = Some(i);
+            self.selection = None;
         }
     }
 
@@ -528,6 +561,36 @@ impl App {
                 self.settings.zoom = z.clamp(0.5, 2.5);
                 self.save_settings();
             }
+            Action::SetDate(d) => {
+                if let Some(e) = self.current.and_then(|i| self.entries.get_mut(i)) {
+                    e.fields.datum = Some(d);
+                    e.date_text = d.format("%Y-%m-%d").to_string();
+                }
+            }
+            Action::Focus(f) => self.focus = Some(f),
+            Action::Selection { text, pos } => self.selection = Some(SelectionMenu { text, pos, rect: None }),
+            Action::CloseSelection => self.selection = None,
+            Action::ApplySelection(field) => {
+                if let Some(sel) = self.selection.take()
+                    && let Some(e) = self.current.and_then(|i| self.entries.get_mut(i))
+                {
+                    match field {
+                        FieldFocus::Datum => {
+                            if let Some(d) = find_date(&sel.text) {
+                                e.fields.datum = Some(d);
+                                e.date_text = d.format("%Y-%m-%d").to_string();
+                            }
+                        }
+                        FieldFocus::Unternehmen => e.fields.unternehmen = sel.text,
+                        FieldFocus::Thema => e.fields.thema = sel.text,
+                    }
+                    self.focus = Some(field);
+                }
+            }
+            Action::ToggleHighlights => {
+                self.settings.show_highlights = !self.settings.show_highlights;
+                self.save_settings();
+            }
             Action::SettingsChanged => {
                 self.template = Template::parse(&self.settings.template);
                 crate::i18n::apply_setting(self.settings.language);
@@ -545,6 +608,8 @@ impl App {
         let cmd = |key| KeyboardShortcut::new(Modifiers::COMMAND, key);
         let alt = |key| KeyboardShortcut::new(Modifiers::ALT, key);
         let mut alt_used = false;
+        // Vorher abfragen: innerhalb von `input_mut` darf der Kontext nicht noch einmal gesperrt werden (Deadlock)
+        let completing = form::completion_active(ctx);
         ctx.input_mut(|i| {
             if i.consume_shortcut(&cmd(Key::ArrowDown)) {
                 actions.push(Action::Skip);
@@ -560,6 +625,18 @@ impl App {
             }
             if i.consume_shortcut(&cmd(Key::O)) {
                 actions.push(Action::ChooseFolder);
+            }
+            if i.consume_shortcut(&cmd(Key::Plus)) || i.consume_shortcut(&cmd(Key::Equals)) {
+                actions.push(Action::Zoom(self.settings.zoom + 0.1));
+            }
+            if i.consume_shortcut(&cmd(Key::Minus)) {
+                actions.push(Action::Zoom(self.settings.zoom - 0.1));
+            }
+            if i.consume_shortcut(&cmd(Key::Num0)) {
+                actions.push(Action::Zoom(1.0));
+            }
+            if self.selection.is_some() && i.key_pressed(Key::Escape) {
+                actions.push(Action::CloseSelection);
             }
             for (key, field) in [
                 (Key::Num1, FieldFocus::Datum),
@@ -581,7 +658,8 @@ impl App {
             if alt_used {
                 i.events.retain(|e| !matches!(e, Event::Text(_)));
             }
-            if i.key_pressed(Key::Enter) && i.modifiers.is_none() {
+            // Ist in einer Vorschlagsliste ein Eintrag gewählt, übernimmt ↵ diesen statt die Datei umzubenennen
+            if i.key_pressed(Key::Enter) && i.modifiers.is_none() && !completing {
                 actions.push(Action::Accept);
             }
         });
@@ -689,6 +767,65 @@ impl App {
         });
     }
 
+    /// Bekannte Unternehmen und Themen für die Autovervollständigung: aus allen erkannten und
+    /// schon benannten Dateien dieses Ordners (ab M5 zusätzlich aus dem gelernten Wissen).
+    fn completions(&self) -> (Vec<String>, Vec<String>) {
+        let mut companies = std::collections::BTreeSet::new();
+        let mut topics = std::collections::BTreeSet::new();
+        for e in &self.entries {
+            if let Some(s) = e.suggestion() {
+                companies.insert(s.unternehmen.value.clone());
+                topics.insert(s.thema.value.clone());
+            }
+            companies.insert(e.fields.unternehmen.clone());
+            topics.insert(e.fields.thema.clone());
+            if let Ok(t) = &self.template
+                && let Some(f) = t.parse_name(&e.file_name())
+            {
+                companies.insert(f.unternehmen);
+                topics.insert(f.thema);
+            }
+        }
+        let clean =
+            |set: std::collections::BTreeSet<String>| set.into_iter().filter(|s| !s.trim().is_empty()).collect();
+        (clean(companies), clean(topics))
+    }
+
+    /// Kleines Menü an der Stelle einer Textauswahl in der Vorschau.
+    fn selection_menu(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) {
+        let Some(sel) = &mut self.selection else { return };
+        // Klick daneben schließt das Menü
+        if let Some(rect) = sel.rect
+            && ctx.input(|i| i.pointer.any_pressed())
+            && ctx.pointer_interact_pos().is_some_and(|p| !rect.contains(p))
+        {
+            actions.push(Action::CloseSelection);
+            return;
+        }
+        let is_date = find_date(&sel.text).is_some();
+        let resp = egui::Area::new(egui::Id::new("auswahl-menue"))
+            .fixed_pos(sel.pos + egui::vec2(0.0, 8.0))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(&ctx.global_style()).show(ui, |ui| {
+                    ui.set_max_width(320.0);
+                    ui.add(egui::Label::new(egui::RichText::new(format!("„{}“", sel.text)).weak()).truncate());
+                    ui.horizontal(|ui| {
+                        if ui.button(format!("→ {}", tr("Unternehmen"))).clicked() {
+                            actions.push(Action::ApplySelection(FieldFocus::Unternehmen));
+                        }
+                        if ui.button(format!("→ {}", tr("Thema"))).clicked() {
+                            actions.push(Action::ApplySelection(FieldFocus::Thema));
+                        }
+                        if is_date && ui.button(format!("→ {}", tr("Datum"))).clicked() {
+                            actions.push(Action::ApplySelection(FieldFocus::Datum));
+                        }
+                    });
+                });
+            });
+        sel.rect = Some(resp.response.rect);
+    }
+
     fn toast(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) {
         let now = ctx.input(|i| i.time);
         if self.toast.as_ref().is_some_and(|t| now > t.until) {
@@ -764,6 +901,7 @@ impl eframe::App for App {
                     });
             }
             let focus = self.focus.take();
+            let mut hovered = None;
             let threshold = THRESHOLD;
             if let Some(cur) = self.current {
                 let target = {
@@ -778,6 +916,7 @@ impl eframe::App for App {
                     .filter(|(i, e)| *i != cur && !e.is_open())
                     .map(|(_, e)| e.file_name())
                     .collect();
+                let (companies, topics) = self.completions();
                 let fctx = form::FormCtx {
                     template: self.template.as_ref().ok(),
                     naming: &self.settings.naming,
@@ -785,17 +924,29 @@ impl eframe::App for App {
                     target_dir: shown_target.as_deref(),
                     taken: &other_names,
                     can_undo: !self.undo_stack.is_empty(),
+                    companies: &companies,
+                    topics: &topics,
                 };
                 egui::Panel::right("formular").exact_size(380.0).show(ui, |ui| {
-                    form::show(ui, &mut self.entries[cur], &fctx, focus, &mut actions);
+                    hovered = form::show(ui, &mut self.entries[cur], &fctx, focus, &mut actions);
                 });
             }
+            // Fokussiertes Feld hat Vorrang vor dem nur überfahrenen
+            let focused = [FieldFocus::Datum, FieldFocus::Unternehmen, FieldFocus::Thema]
+                .into_iter()
+                .find(|f| ctx.memory(|m| m.has_focus(f.id())));
+            let pctx = preview::PreviewCtx {
+                zoom: self.settings.zoom,
+                show_highlights: self.settings.show_highlights,
+                active: focused.or(hovered),
+            };
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(theme::desk(&ctx)))
                 .show(ui, |ui| {
                     let entry = self.current.map(|i| &self.entries[i]);
-                    self.preview_width = preview::show(ui, entry, self.settings.zoom, &mut actions);
+                    self.preview_width = preview::show(ui, entry, &pctx, &mut actions);
                 });
+            self.selection_menu(&ctx, &mut actions);
         }
 
         let mut settings_changed = false;
@@ -826,4 +977,14 @@ pub fn parse_date(s: &str) -> Option<NaiveDate> {
         .or_else(|_| NaiveDate::parse_from_str(s, "%d.%m.%Y"))
         .or_else(|_| NaiveDate::parse_from_str(s, "%d.%m.%y"))
         .ok()
+}
+
+/// Datum irgendwo in einem markierten Text, z. B. „Datum: 28.09.2026“.
+pub fn find_date(s: &str) -> Option<NaiveDate> {
+    parse_date(s).or_else(|| {
+        s.split_whitespace().find_map(|w| {
+            let w = w.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-');
+            parse_date(w).or_else(|| parse_date(w.trim_end_matches('.')))
+        })
+    })
 }
