@@ -104,7 +104,7 @@ fn from_subject(layout: &Layout) -> Option<TopicResult> {
             && l.zone == Zone::Body
             && l.bbox.y > height * 0.25
             && l.bbox.y < salutation_y
-            && ((l.bold && l.font_size >= body * 0.95) || BETREFF.is_match(&l.text))
+            && ((l.bold && l.font_size >= body * 0.95) || l.font_size >= body * 1.1 || BETREFF.is_match(&l.text))
     })?;
     let (text, transformed) = normalize(&line.text);
     let text = text?;

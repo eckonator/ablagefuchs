@@ -9,5 +9,6 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 lopdf.workspace = true
+af-pdf.workspace = true
 flate2 = "1"
 tar = "0.4"

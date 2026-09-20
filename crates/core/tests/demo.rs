@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Golden-Tests: Text der Demo-PDFs (von pdfium gelesen und als JSON gespeichert) → erwarteter Dateiname.
 //! Neu erzeugen nach Änderungen an den Demo-PDFs:
-//! `for i in 1 2 3 4 5 6 7; do ablagefuchs-cli text --json demo/Eingang/scan_20261002_000$i.pdf > crates/core/tests/fixtures/demo/scan_20261002_000$i.json; done`
+//! `for i in 1 2 3 4 5 6 7 8; do ablagefuchs-cli text --json demo/Eingang/scan_20261002_000$i.pdf > crates/core/tests/fixtures/demo/scan_20261002_000$i.json; done`
 
 use af_core::naming::{DEFAULT_TEMPLATE, NamingOptions, Template};
 use af_core::{Context, PageText, Source, analyze};
@@ -9,6 +9,8 @@ use chrono::NaiveDate;
 
 /// Dieselben Erwartungen wie `xtask/demo-expected.tsv` (dort für den Weg über pdfium in der CI).
 const EXPECTED: &str = include_str!("../../../xtask/demo-expected.tsv");
+/// Der Scan ohne Textebene; Fixture mit dem Ergebnis von Apple Vision.
+const EXPECTED_OCR: &str = include_str!("../../../xtask/demo-expected-ocr.tsv");
 
 #[test]
 fn demo_documents_get_expected_names() {
@@ -17,7 +19,7 @@ fn demo_documents_get_expected_names() {
         reference_date: NaiveDate::from_ymd_opt(2026, 10, 13),
         ocr_quality: None,
     };
-    for line in EXPECTED.lines() {
+    for line in EXPECTED.lines().chain(EXPECTED_OCR.lines()) {
         let (pdf, expected) = line.split_once('\t').unwrap();
         let fixture = format!(
             "{}/tests/fixtures/demo/{}",

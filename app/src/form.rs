@@ -6,7 +6,7 @@ use std::path::Path;
 use af_core::dates::DateKind;
 use af_core::naming::{NamingOptions, Template};
 use af_core::topic::TopicSource;
-use af_core::{Source, Suggestion};
+use af_core::{Source, Suggestion, TextSource};
 use eframe::egui::{self, Color32, RichText};
 
 use crate::app::{Action, AnalysisState, Entry, FieldFocus, parse_date};
@@ -96,26 +96,43 @@ pub fn show(
         };
         ui.add_space(10.0);
         let ctx = ui.ctx().clone();
-        let suggestion = match &e.analysis {
-            AnalysisState::Ready(a) => {
-                ui.horizontal(|ui| {
-                    badge(ui, tr("Text"), theme::ok(&ctx));
-                    ui.label(RichText::new(tr("Textebene vorhanden")).weak());
+        let suggestion =
+            match &e.analysis {
+                AnalysisState::Ready(a) => {
+                    ui.horizontal_wrapped(|ui| match &a.source {
+                    _ if a.no_text() => {
+                        badge(ui, tr("Kein Text"), theme::bad(&ctx));
+                        let hint = if cfg!(target_os = "linux") {
+                            tr("Nichts erkannt. Für Scans wird Tesseract benötigt (tesseract-ocr, tesseract-ocr-deu).")
+                        } else {
+                            tr("Nichts erkannt (Foto, Handschrift oder leere Seite?)")
+                        };
+                        ui.label(RichText::new(hint).weak());
+                    }
+                    TextSource::Embedded => {
+                        badge(ui, tr("Text"), theme::ok(&ctx));
+                        ui.label(RichText::new(tr("Textebene vorhanden")).weak());
+                    }
+                    TextSource::Ocr { engine, mean_confidence } => {
+                        badge(ui, "OCR", theme::accent(&ctx));
+                        let pct = (mean_confidence * 100.0).round() as u32;
+                        ui.label(RichText::new(trf("Texterkennung: {} · Sicherheit {} %", &[engine, &pct])).weak());
+                    }
                 });
-                Some(a.suggestion.clone())
-            }
-            AnalysisState::Failed(err) => {
-                ui.colored_label(theme::bad(&ctx), trf("Datei nicht lesbar: {}", &[err]));
-                None
-            }
-            _ => {
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(tr("wird gelesen …"));
-                });
-                None
-            }
-        };
+                    Some(a.suggestion.clone())
+                }
+                AnalysisState::Failed(err) => {
+                    ui.colored_label(theme::bad(&ctx), trf("Datei nicht lesbar: {}", &[err]));
+                    None
+                }
+                _ => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(tr("wird gelesen …"));
+                    });
+                    None
+                }
+            };
         let s = suggestion.as_ref();
         if !e.is_open() {
             ui.add_space(4.0);

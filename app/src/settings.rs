@@ -35,12 +35,31 @@ pub enum GraphicsSetting {
     OpenGl,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum OcrSetting {
+    /// Systemeigene Texterkennung (Apple Vision, Windows OCR), sonst Tesseract
+    #[default]
+    Auto,
+    /// Immer Tesseract (gleiche Ergebnisse auf allen Systemen)
+    Tesseract,
+}
+
+impl OcrSetting {
+    pub fn preference(self) -> af_ocr::Preference {
+        match self {
+            OcrSetting::Auto => af_ocr::Preference::Auto,
+            OcrSetting::Tesseract => af_ocr::Preference::Tesseract,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub language: LangSetting,
     pub theme: ThemeSetting,
     pub graphics: GraphicsSetting,
+    pub ocr: OcrSetting,
     /// Automatisch gesetzt, wenn wgpu nicht startete; gilt bei `GraphicsSetting::Auto`
     pub opengl_fallback: bool,
     pub template: String,
@@ -63,6 +82,7 @@ impl Default for Settings {
             language: LangSetting::System,
             theme: ThemeSetting::System,
             graphics: GraphicsSetting::Auto,
+            ocr: OcrSetting::Auto,
             opengl_fallback: false,
             template: DEFAULT_TEMPLATE.to_string(),
             naming: NamingOptions::default(),

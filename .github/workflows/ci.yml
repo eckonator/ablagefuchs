@@ -28,7 +28,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev \
-            libxrandr-dev libxi-dev libgl1-mesa-dev pkg-config
+            libxrandr-dev libxi-dev libgl1-mesa-dev pkg-config tesseract-ocr tesseract-ocr-deu
       - name: Formatierung
         if: runner.os == 'Linux'
         run: cargo fmt --all --check
@@ -44,8 +44,16 @@ jobs:
         run: |
           cargo xtask demo-pdfs
           cargo run --quiet -p ablagefuchs-cli -- pages demo/Eingang/scan_20261002_0004.pdf | grep -qx 4
-          cargo run --quiet -p ablagefuchs-cli -- suggest --names demo/Eingang | tr -d "\r" > suggest.tsv
+          cargo run --quiet -p ablagefuchs-cli -- suggest --names demo/Eingang | tr -d "\r" | grep -v 0008 > suggest.tsv
           diff -u xtask/demo-expected.tsv suggest.tsv
+      # Scan ohne Textebene: macOS (Apple Vision) muss passen; Windows-OCR und Tesseract sind noch nicht
+      # gegen dieses Ergebnis abgeglichen, deshalb dort vorerst nur zur Beobachtung
+      - name: Texterkennung des Demo-Scans
+        shell: bash
+        continue-on-error: ${{ runner.os != 'macOS' }}
+        run: |
+          cargo run --quiet -p ablagefuchs-cli -- suggest --names demo/Eingang/scan_20261002_0008.pdf | tr -d "\r" > ocr.tsv
+          diff -u xtask/demo-expected-ocr.tsv ocr.tsv
 
   deny:
     runs-on: ubuntu-latest

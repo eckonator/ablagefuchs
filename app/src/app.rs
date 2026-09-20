@@ -52,6 +52,16 @@ pub struct Entry {
     pub page: usize,
     pub preview: Option<Preview>,
     pub render_pending: Option<(usize, u32)>,
+    /// Datei ist von außen verschwunden (gelöscht, verschoben)
+    pub gone: bool,
+    /// Größe und Änderungszeit beim letzten Lesen: ändern sie sich, wird neu gelesen
+    file_state: FileState,
+}
+
+type FileState = (u64, Option<std::time::SystemTime>);
+
+fn file_state(path: &Path) -> FileState {
+    std::fs::metadata(path).map_or((0, None), |m| (m.len(), m.modified().ok()))
 }
 
 impl Entry {
@@ -70,7 +80,7 @@ impl Entry {
     }
 
     pub fn is_open(&self) -> bool {
-        self.done.is_none()
+        self.done.is_none() && !self.gone
     }
 
     /// Offen und unsicher (oder nicht lesbar): gehört in den Filter „Prüfen“.
@@ -105,7 +115,7 @@ impl Filter {
             Filter::All => true,
             Filter::Open => e.is_open(),
             Filter::Check => e.needs_check(),
-            Filter::Done => !e.is_open(),
+            Filter::Done => e.done.is_some(),
         }
     }
 }
@@ -191,6 +201,9 @@ pub struct App {
     undo_stack: Vec<(usize, u64)>,
     focus: Option<FieldFocus>,
     preview_width: f32,
+    /// Ordnerüberwachung: Zeitpunkt der letzten Prüfung und neue Dateien, die noch geschrieben werden könnten
+    last_poll: f64,
+    pending_files: std::collections::HashMap<PathBuf, FileState>,
     applied_theme: Option<ThemeSetting>,
     selection: Option<SelectionMenu>,
 }
@@ -223,6 +236,8 @@ impl App {
             undo_stack: Vec::new(),
             focus: None,
             preview_width: 600.0,
+            last_poll: 0.0,
+            pending_files: std::collections::HashMap::new(),
             applied_theme: None,
             selection: None,
             settings,
@@ -267,38 +282,11 @@ impl App {
             }
         };
         files.sort();
-        self.entries = files
-            .into_iter()
-            .map(|path| {
-                let original = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                // Schon nach der Vorlage benannt: gilt als erledigt
-                let done = self
-                    .template
-                    .as_ref()
-                    .ok()
-                    .and_then(|t| t.parse_name(&original))
-                    .map(|_| None);
-                let id = self.next_id;
-                self.next_id += 1;
-                Entry {
-                    id,
-                    path,
-                    original,
-                    done,
-                    analysis: AnalysisState::Missing,
-                    fields: NameFields::default(),
-                    date_text: String::new(),
-                    page: 0,
-                    preview: None,
-                    render_pending: None,
-                }
-            })
-            .collect();
+        self.entries = files.into_iter().map(|path| self.new_entry(path)).collect();
         self.journal = Some(Journal::for_inbox(&dir, settings::config_dir().as_deref()));
         self.undo_stack.clear();
+        self.pending_files.clear();
+        self.last_poll = 0.0;
         self.current = self
             .entries
             .iter()
@@ -307,6 +295,36 @@ impl App {
         self.settings.remember_inbox(&dir);
         self.inbox = Some(dir);
         self.save_settings();
+    }
+
+    fn new_entry(&mut self, path: PathBuf) -> Entry {
+        let original = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        // Schon nach der Vorlage benannt: gilt als erledigt
+        let done = self
+            .template
+            .as_ref()
+            .ok()
+            .and_then(|t| t.parse_name(&original))
+            .map(|_| None);
+        let id = self.next_id;
+        self.next_id += 1;
+        Entry {
+            id,
+            original,
+            done,
+            analysis: AnalysisState::Missing,
+            fields: NameFields::default(),
+            date_text: String::new(),
+            page: 0,
+            preview: None,
+            render_pending: None,
+            gone: false,
+            file_state: file_state(&path),
+            path,
+        }
     }
 
     fn show_error(&mut self, text: String) {
@@ -384,6 +402,68 @@ impl App {
         }
     }
 
+    /// Ordnerüberwachung per Abfrage alle 2 s (zuverlässiger als Dateisystem-Ereignisse auf NAS-Freigaben).
+    /// Neue PDFs erscheinen erst, wenn sich Größe und Änderungszeit zwischen zwei Abfragen nicht mehr ändern,
+    /// der Scanner also fertig geschrieben hat. Verschwundene Dateien werden als solche markiert.
+    fn watch_inbox(&mut self, ctx: &egui::Context) {
+        let Some(dir) = self.inbox.clone() else { return };
+        let now = ctx.input(|i| i.time);
+        ctx.request_repaint_after(std::time::Duration::from_secs(2));
+        if now - self.last_poll < 2.0 {
+            return;
+        }
+        self.last_poll = now;
+        let Ok(rd) = std::fs::read_dir(&dir) else { return };
+        let known: std::collections::HashSet<PathBuf> = self.entries.iter().map(|e| e.path.clone()).collect();
+        let mut seen = std::collections::HashSet::new();
+        let mut added = Vec::new();
+        for path in rd.filter_map(|e| e.ok().map(|e| e.path())) {
+            if !path.is_file()
+                || !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+                || known.contains(&path)
+            {
+                continue;
+            }
+            seen.insert(path.clone());
+            let Ok(meta) = std::fs::metadata(&path) else { continue };
+            let state = (meta.len(), meta.modified().ok());
+            match self.pending_files.get(&path) {
+                Some(prev) if *prev == state && state.0 > 0 => {
+                    self.pending_files.remove(&path);
+                    added.push(path);
+                }
+                _ => {
+                    self.pending_files.insert(path, state);
+                }
+            }
+        }
+        self.pending_files.retain(|p, _| seen.contains(p));
+        added.sort();
+        for path in added {
+            log::info!("Neue Datei im Eingang: {}", path.display());
+            let entry = self.new_entry(path);
+            self.entries.push(entry);
+            if self.current.is_none() {
+                self.current = Some(self.entries.len() - 1);
+            }
+        }
+        for e in &mut self.entries {
+            if e.done.is_some() {
+                continue;
+            }
+            e.gone = !e.path.exists();
+            // Nachträglich verändert (Scanner schrieb mit Pause weiter, Datei ersetzt): neu lesen
+            let state = file_state(&e.path);
+            if !e.gone && state != e.file_state {
+                log::info!("Datei verändert, lese neu: {}", e.path.display());
+                e.file_state = state;
+                e.analysis = AnalysisState::Missing;
+                e.preview = None;
+                e.render_pending = None;
+            }
+        }
+    }
+
     /// Aktuelle Datei und die nächsten offenen erkennen lassen, Vorschau in passender Größe rendern.
     fn schedule_jobs(&mut self, ctx: &egui::Context) {
         let Some(cur) = self.current else { return };
@@ -402,6 +482,7 @@ impl App {
                 self.worker.send(Job::Analyze {
                     id: e.id,
                     path: e.path.clone(),
+                    ocr: self.settings.ocr.preference(),
                 });
             }
         }
@@ -711,7 +792,7 @@ impl App {
                 }
             });
             if !self.entries.is_empty() {
-                let done = self.entries.iter().filter(|e| !e.is_open()).count();
+                let done = self.entries.iter().filter(|e| e.done.is_some()).count();
                 let total = self.entries.len();
                 ui.add(egui::ProgressBar::new(done as f32 / total as f32).desired_width(140.0));
                 ui.label(egui::RichText::new(trf("{} / {} erledigt", &[&done, &total])).weak());
@@ -965,6 +1046,7 @@ impl eframe::App for App {
         for a in actions {
             self.run(&ctx, a);
         }
+        self.watch_inbox(&ctx);
         self.schedule_jobs(&ctx);
         self.dev.on_frame(&ctx);
     }
