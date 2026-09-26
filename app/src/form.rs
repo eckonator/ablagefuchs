@@ -69,17 +69,18 @@ pub fn show(
         ui.columns(2, |cols| {
             let w = cols[0].available_width();
             if cols[0]
-                .add_sized([w, 28.0], egui::Button::new(tr("Überspringen")))
+                .add_sized([w, 28.0], egui::Button::new(tr("Überspringen")).truncate())
                 .clicked()
             {
                 actions.push(Action::Skip);
             }
             let w = cols[1].available_width();
             if cols[1]
-                .add_enabled(
-                    e.suggestion().is_some(),
-                    egui::Button::new(tr("Vorschlag zurücksetzen")).min_size(egui::vec2(w, 28.0)),
-                )
+                .add_enabled_ui(e.suggestion().is_some(), |ui| {
+                    ui.add_sized([w, 28.0], egui::Button::new(tr("Zurücksetzen")).truncate())
+                })
+                .inner
+                .on_hover_text(tr("Felder wieder auf den erkannten Vorschlag setzen"))
                 .clicked()
             {
                 actions.push(Action::ResetFields);

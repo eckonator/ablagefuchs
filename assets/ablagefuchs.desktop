@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Ablagefuchs
+GenericName=Document renamer
+GenericName[de]=Dokumente umbenennen
+Comment=Rename scanned PDFs by date, company and topic
+Comment[de]=Gescannte PDFs nach Datum, Unternehmen und Thema umbenennen
+Exec=ablagefuchs %f
+Icon=ablagefuchs
+Terminal=false
+Categories=Office;Utility;

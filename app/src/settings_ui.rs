@@ -244,6 +244,20 @@ fn general(ui: &mut egui::Ui, s: &mut Settings, changed: &mut bool) {
         ),
     );
 
+    heading(ui, tr("Updates"));
+    let mut check = s.update_check.unwrap_or(false);
+    if ui
+        .checkbox(&mut check, tr("Beim Start bei GitHub nach einer neuen Version suchen"))
+        .changed()
+    {
+        s.update_check = Some(check);
+        *changed = true;
+    }
+    hint(
+        ui,
+        tr("Gesendet wird nur die Frage nach der neuesten Version, keine Daten über Dokumente oder Ordner."),
+    );
+
     heading(ui, tr("Grafik"));
     let auto = if cfg!(windows) {
         tr("Automatisch (DirectX 12)")
@@ -442,13 +456,14 @@ fn folders(ui: &mut egui::Ui, st: &mut SettingsUi, s: &mut Settings, changed: &m
     );
 }
 
-const THIRD_PARTY: [(&str, &str); 7] = [
+const THIRD_PARTY: [(&str, &str); 8] = [
     ("PDFium", "Apache-2.0 / BSD-3-Clause"),
     ("egui / eframe", "MIT / Apache-2.0"),
     (
         "egui-Schriften (Ubuntu, Noto Emoji, Emoji Icon Font)",
         "Ubuntu Font Licence / OFL-1.1",
     ),
+    ("Inter (Oberflächenschrift)", "OFL-1.1"),
     ("DejaVu Sans (Ausschnitt für Symbole)", "Bitstream Vera / Public Domain"),
     ("pdfium-render, lopdf", "MIT / Apache-2.0"),
     ("regex, chrono, serde, rfd, dirs", "MIT / Apache-2.0"),
@@ -458,14 +473,10 @@ const THIRD_PARTY: [(&str, &str); 7] = [
 fn about(ui: &mut egui::Ui) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        egui::Frame::new()
-            .fill(egui::Color32::from_rgb(0xe0, 0x7a, 0x22))
-            .corner_radius(14)
-            .inner_margin(12)
-            .show(ui, |ui| {
-                // Platzhalter bis zum eigenen Icon (M7); die Schrift kennt kein Fuchs-Emoji
-                ui.label(RichText::new("AF").size(28.0).strong().color(egui::Color32::WHITE));
-            });
+        // App-Icon (beim Start als Textur geladen)
+        if let Some(tex) = ui.data(|d| d.get_temp::<egui::TextureHandle>(egui::Id::new("app-icon"))) {
+            ui.add(egui::Image::new((tex.id(), egui::vec2(80.0, 80.0))));
+        }
         ui.vertical(|ui| {
             ui.heading("Ablagefuchs");
             let hash = env!("AF_GIT_HASH");
@@ -513,8 +524,14 @@ fn about(ui: &mut egui::Ui) {
 
     heading(ui, tr("Datenschutz"));
     ui.label(tr(
-        "Ablagefuchs arbeitet vollständig offline. Es werden keine Daten übertragen.",
+        "Ablagefuchs arbeitet offline: Dokumente, Dateinamen, Ordner und Gelerntes verlassen diesen Rechner nie.",
     ));
+    hint(
+        ui,
+        tr(
+            "Einzige Ausnahme, nur wenn eingeschaltet: Beim Start fragt Ablagefuchs bei GitHub nach der neuesten Version. Dabei sieht GitHub wie bei jedem Webseitenaufruf deine IP-Adresse.",
+        ),
+    );
 
     heading(ui, tr("Diagnose"));
     ui.horizontal(|ui| {

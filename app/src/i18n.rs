@@ -148,6 +148,26 @@ fn en(de: &str) -> Option<&'static str> {
         "Leerzeichen" => "Spaces",
         "Leistungsdatum" => "service date",
         "Markierungen" => "Highlights",
+        "Ablagefuchs {} ist verfügbar (installiert: {})." => "Ablagefuchs {} is available (installed: {}).",
+        "Ablagefuchs arbeitet offline: Dokumente, Dateinamen, Ordner und Gelerntes verlassen diesen Rechner nie." => {
+            "Ablagefuchs works offline: documents, file names, folders and learned knowledge never leave this computer."
+        }
+        "Beim Start bei GitHub nach einer neuen Version suchen" => "Check GitHub for a new version at startup",
+        "Beim Start nach neuen Versionen suchen?" => "Check for new versions at startup?",
+        "Dabei fragt Ablagefuchs nur bei GitHub nach der neuesten Version – ohne Daten über deine Dokumente." => {
+            "Ablagefuchs only asks GitHub for the latest version – without any data about your documents."
+        }
+        "Download-Seite öffnen" => "Open download page",
+        "Einzige Ausnahme, nur wenn eingeschaltet: Beim Start fragt Ablagefuchs bei GitHub nach der neuesten Version. Dabei sieht GitHub wie bei jedem Webseitenaufruf deine IP-Adresse." => {
+            "Only exception, if enabled: at startup Ablagefuchs asks GitHub for the latest version. As with any website visit, GitHub sees your IP address."
+        }
+        "Gesendet wird nur die Frage nach der neuesten Version, keine Daten über Dokumente oder Ordner." => {
+            "Only the request for the latest version is sent, no data about documents or folders."
+        }
+        "Ja, prüfen" => "Yes, check",
+        "Nein" => "No",
+        "Später" => "Later",
+        "Updates" => "Updates",
         "Bei Scans die erkannte Schrift als unsichtbare Textebene einbetten (Volltextsuche)" => {
             "For scans, embed the recognized text as an invisible text layer (full-text search)"
         }
@@ -307,7 +327,8 @@ fn en(de: &str) -> Option<&'static str> {
         "vorherige" => "previous",
         "Vorlage" => "Template",
         "Vorlagen:" => "Presets:",
-        "Vorschlag zurücksetzen" => "Reset suggestion",
+        "Zurücksetzen" => "Reset",
+        "Felder wieder auf den erkannten Vorschlag setzen" => "Reset the fields to the recognized suggestion",
         "Wähle den Ordner, in den dein Scanner die Dokumente legt." => {
             "Choose the folder your scanner saves documents to."
         }
@@ -337,6 +358,7 @@ fn en(de: &str) -> Option<&'static str> {
         "Ohne Thema" => "Without topic",
         "Jahr-Monat" => "Year-month",
         "egui-Schriften (Ubuntu, Noto Emoji, Emoji Icon Font)" => "egui fonts (Ubuntu, Noto Emoji, Emoji Icon Font)",
+        "Inter (Oberflächenschrift)" => "Inter (interface font)",
         "DejaVu Sans (Ausschnitt für Symbole)" => "DejaVu Sans (subset for symbols)",
         _ => return None,
     })
