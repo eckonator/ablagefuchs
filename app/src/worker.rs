@@ -19,6 +19,7 @@ pub enum Job {
         id: u64,
         path: PathBuf,
         ocr: af_ocr::Preference,
+        knowledge: std::sync::Arc<af_core::knowledge::Knowledge>,
     },
     Render {
         id: u64,
@@ -89,9 +90,14 @@ fn spawn_thread(name: &str, ctx: egui::Context, done: Sender<Done>) -> Sender<Jo
         .spawn(move || {
             while let Ok(job) = jobs.recv() {
                 let result = match job {
-                    Job::Analyze { id, path, ocr } => Done::Analyzed {
+                    Job::Analyze {
                         id,
-                        result: analyze(&path, ocr).map(Box::new),
+                        path,
+                        ocr,
+                        knowledge,
+                    } => Done::Analyzed {
+                        id,
+                        result: analyze(&path, ocr, &knowledge).map(Box::new),
                     },
                     Job::Render { id, path, page, width } => Done::Rendered {
                         id,
@@ -110,7 +116,11 @@ fn spawn_thread(name: &str, ctx: egui::Context, done: Sender<Done>) -> Sender<Jo
     tx
 }
 
-fn analyze(path: &std::path::Path, ocr: af_ocr::Preference) -> Result<Analysis, String> {
+fn analyze(
+    path: &std::path::Path,
+    ocr: af_ocr::Preference,
+    knowledge: &af_core::knowledge::Knowledge,
+) -> Result<Analysis, String> {
     let pages = af_pdf::page_count(path).map_err(|e| format!("{e:#}"))?;
     let key = crate::cache::key(path);
     let (text, source) = match key.as_deref().and_then(crate::cache::load) {
@@ -131,6 +141,7 @@ fn analyze(path: &std::path::Path, ocr: af_ocr::Preference) -> Result<Analysis, 
     let ctx = Context {
         reference_date: modified_date(path),
         ocr_quality,
+        knowledge: Some(knowledge),
     };
     let suggestion = af_core::analyze(&text, &ctx);
     Ok(Analysis {

@@ -10,10 +10,11 @@ pub mod company;
 pub mod dates;
 pub mod files;
 pub mod invoice;
+pub mod knowledge;
 pub mod layout;
 mod model;
 pub mod naming;
 pub mod topic;
 
-pub use analyze::{Context, Field, Highlight, Source, Suggestion, analyze};
+pub use analyze::{Context, Field, Highlight, LearnInfo, Source, Suggestion, analyze};
 pub use model::{PageText, Rect, TextSource, Word};

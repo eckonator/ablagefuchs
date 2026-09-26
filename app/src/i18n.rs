@@ -148,6 +148,50 @@ fn en(de: &str) -> Option<&'static str> {
         "Leerzeichen" => "Spaces",
         "Leistungsdatum" => "service date",
         "Markierungen" => "Highlights",
+        "⚡ Sichere übernehmen ({})" => "⚡ Accept confident ({})",
+        "{} Dateien im Stapel umbenannt" => "{} files renamed in batch",
+        "{} Dateien umbenannt, {} fehlgeschlagen (siehe Logdatei)" => "{} files renamed, {} failed (see log file)",
+        "Abbrechen" => "Cancel",
+        "Ablagefuchs lernt Schreibweisen, Kennungen (USt-IdNr., IBAN, Steuernummer) und Themen. Alles bleibt auf diesem Rechner: kein Netzwerk, keine KI." => {
+            "Ablagefuchs learns spellings, identifiers (VAT ID, IBAN, tax number) and topics. Everything stays on this computer: no network, no AI."
+        }
+        "Alles vergessen" => "Forget everything",
+        "Auch Scans ohne Textebene lesen (langsam)" => "Also read scans without a text layer (slow)",
+        "Aus einem Ordner lernen" => "Learn from a folder",
+        "Aus Korrekturen lernen" => "Learn from corrections",
+        "Beim Umbenennen aus meinen Angaben lernen" => "Learn from my input when renaming",
+        "Bekannte Unternehmen ({})" => "Known companies ({})",
+        "Dateien, bei denen jedes Feld mindestens so sicher erkannt ist, gelten als sicher: nicht unter „Prüfen“ und im Stapelmodus ohne Rückfrage umbenannt." => {
+            "Files where every field reaches at least this confidence count as confident: not under “Review” and renamed in batch mode without asking."
+        }
+        "Dokumente" => "Documents",
+        "Domain" => "Domain",
+        "Gelernt aus {} von {} Dateien – {} Unternehmen bekannt" => {
+            "Learned from {} of {} files – {} companies known"
+        }
+        "Gelernt über {} ({} Dokumente)" => "Learned via {} ({} documents)",
+        "Gelernt über den Namen im Briefkopf ({} Dokumente)" => {
+            "Learned via the name in the letterhead ({} documents)"
+        }
+        "Häufigstes Thema dieses Absenders ({}×)" => "Most frequent topic of this sender ({}×)",
+        "Kennungen" => "Identifiers",
+        "Lernen starten" => "Start learning",
+        "Liest alle PDFs im Ordner und in allen Unterordnern, deren Name zur Vorlage passt: Dateiname und erste Seite." => {
+            "Reads all PDFs in the folder and all subfolders whose name matches the template: file name and first page."
+        }
+        "Name" => "Name",
+        "Noch nichts gelernt." => "Nothing learned yet.",
+        "Ordner zum Lernen wählen" => "Choose folder to learn from",
+        "Ordner:" => "Folder:",
+        "Sicherheitsschwelle" => "Confidence threshold",
+        "Stapelmodus" => "Batch mode",
+        "Steuernummer" => "Tax number",
+        "Themen" => "Topics",
+        "USt-IdNr." => "VAT ID",
+        "Vergessen" => "Forget",
+        "Wirklich alles vergessen?" => "Really forget everything?",
+        "Wissensdatei anzeigen" => "Show knowledge file",
+        "Wissen" => "Knowledge",
         "Ordner wird überwacht – neue Scans erscheinen automatisch" => {
             "Watching folder – new scans appear automatically"
         }

@@ -4,6 +4,7 @@
 //! - `fetch-pdfium [plattform …]` lädt die pdfium-Bibliothek nach `vendor/pdfium/<plattform>/`
 //!   (ohne Angabe für dieses System; Plattformen: mac-arm64, mac-x64, win-x64, linux-x64 …)
 //! - `demo-pdfs [ordner]` erzeugt Beispiel-Scans fiktiver Firmen (Standard: `demo/Eingang`)
+//! - `demo-archiv [ordner]` erzeugt ein fiktives, schon benanntes Archiv mit Unterordnern (Standard: `demo/Archiv`)
 
 mod demo;
 
@@ -30,6 +31,13 @@ fn main() -> anyhow::Result<()> {
             }
             Ok(())
         }
+        Some("demo-archiv") => {
+            let dir = args
+                .get(1)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| root.join("demo/Archiv"));
+            demo::write_archive(&dir)
+        }
         Some("demo-pdfs") => {
             let dir = args
                 .get(1)
@@ -38,7 +46,7 @@ fn main() -> anyhow::Result<()> {
             demo::write_all(&dir)
         }
         _ => {
-            eprintln!("Aufruf: cargo xtask fetch-pdfium [plattform …] | demo-pdfs [ordner]");
+            eprintln!("Aufruf: cargo xtask fetch-pdfium [plattform …] | demo-pdfs [ordner] | demo-archiv [ordner]");
             std::process::exit(2);
         }
     }

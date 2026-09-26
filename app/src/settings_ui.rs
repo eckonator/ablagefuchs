@@ -5,7 +5,7 @@ use af_core::naming::{NameFields, NamingOptions, Spaces, Template, TemplateError
 use chrono::NaiveDate;
 use eframe::egui::{self, RichText};
 
-use crate::app::{AnalysisState, Entry};
+use crate::app::{Action, AnalysisState, Entry};
 use crate::i18n::{tr, trf};
 use crate::settings::{GraphicsSetting, LangSetting, OcrSetting, Settings, ThemeSetting};
 use crate::theme;
@@ -16,6 +16,7 @@ pub enum Page {
     General,
     Naming,
     Folders,
+    Knowledge,
     About,
 }
 
@@ -25,6 +26,17 @@ pub struct SettingsUi {
     page: Page,
     template_buf: String,
     folder_buf: String,
+    /// „Alles vergessen“ wurde einmal geklickt und wartet auf Bestätigung
+    confirm_forget: bool,
+}
+
+/// Was die Seite „Wissen“ anzeigt.
+pub struct KnowledgeCtx<'a> {
+    pub knowledge: &'a af_core::knowledge::Knowledge,
+    /// (erledigt, gesamt, aktuelle Datei), solange gelernt wird
+    pub progress: Option<(usize, usize, String)>,
+    pub last: Option<&'a af_ocr::archive::LearnStats>,
+    pub file: Option<&'a std::path::Path>,
 }
 
 impl SettingsUi {
@@ -33,6 +45,7 @@ impl SettingsUi {
         self.page = match name {
             "name" | "dateiname" => Page::Naming,
             "ordner" => Page::Folders,
+            "wissen" => Page::Knowledge,
             "ueber" | "über" => Page::About,
             _ => Page::General,
         };
@@ -60,7 +73,30 @@ const TOKENS: [&str; 7] = [
     "{rechnung?:_Rechnung}",
 ];
 
-pub fn show(ctx: &egui::Context, st: &mut SettingsUi, settings: &mut Settings, entries: &[Entry], changed: &mut bool) {
+pub fn show(
+    ctx: &egui::Context,
+    st: &mut SettingsUi,
+    settings: &mut Settings,
+    entries: &[Entry],
+    k: &KnowledgeCtx<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let mut changed = false;
+    show_window(ctx, st, settings, entries, k, actions, &mut changed);
+    if changed {
+        actions.push(Action::SettingsChanged);
+    }
+}
+
+fn show_window(
+    ctx: &egui::Context,
+    st: &mut SettingsUi,
+    settings: &mut Settings,
+    entries: &[Entry],
+    k: &KnowledgeCtx<'_>,
+    actions: &mut Vec<Action>,
+    changed: &mut bool,
+) {
     if !st.open {
         return;
     }
@@ -84,6 +120,7 @@ pub fn show(ctx: &egui::Context, st: &mut SettingsUi, settings: &mut Settings, e
                     (Page::General, "Allgemein"),
                     (Page::Naming, "Dateiname"),
                     (Page::Folders, "Ordner"),
+                    (Page::Knowledge, "Wissen"),
                     (Page::About, "Über"),
                 ] {
                     if ui
@@ -101,6 +138,7 @@ pub fn show(ctx: &egui::Context, st: &mut SettingsUi, settings: &mut Settings, e
                     Page::General => general(ui, settings, changed),
                     Page::Naming => naming(ui, st, settings, entries, changed),
                     Page::Folders => folders(ui, st, settings, changed),
+                    Page::Knowledge => knowledge(ui, st, settings, k, actions, changed),
                     Page::About => about(ui),
                 }
             });
@@ -184,6 +222,23 @@ fn general(ui: &mut egui::Ui, s: &mut Settings, changed: &mut bool) {
             tr("Wird nur für Scans ohne Textebene gebraucht. Ergebnisse werden zwischengespeichert."),
         );
     }
+
+    heading(ui, tr("Stapelmodus"));
+    ui.horizontal(|ui| {
+        ui.label(tr("Sicherheitsschwelle"));
+        if ui
+            .add(egui::Slider::new(&mut s.threshold, 70..=100).suffix(" %"))
+            .changed()
+        {
+            *changed = true;
+        }
+    });
+    hint(
+        ui,
+        tr(
+            "Dateien, bei denen jedes Feld mindestens so sicher erkannt ist, gelten als sicher: nicht unter „Prüfen“ und im Stapelmodus ohne Rückfrage umbenannt.",
+        ),
+    );
 
     heading(ui, tr("Grafik"));
     let auto = if cfg!(windows) {
@@ -480,4 +535,169 @@ fn license_text(ui: &mut egui::Ui, text: &str) {
         .show(ui, |ui| {
             ui.label(RichText::new(text).monospace().small());
         });
+}
+
+fn knowledge(
+    ui: &mut egui::Ui,
+    st: &mut SettingsUi,
+    s: &mut Settings,
+    k: &KnowledgeCtx<'_>,
+    actions: &mut Vec<Action>,
+    changed: &mut bool,
+) {
+    hint(
+        ui,
+        tr(
+            "Ablagefuchs lernt Schreibweisen, Kennungen (USt-IdNr., IBAN, Steuernummer) und Themen. Alles bleibt auf diesem Rechner: kein Netzwerk, keine KI.",
+        ),
+    );
+    heading(ui, tr("Aus Korrekturen lernen"));
+    if ui
+        .checkbox(
+            &mut s.learn_from_corrections,
+            tr("Beim Umbenennen aus meinen Angaben lernen"),
+        )
+        .changed()
+    {
+        *changed = true;
+    }
+
+    heading(ui, tr("Aus einem Ordner lernen"));
+    hint(
+        ui,
+        tr(
+            "Liest alle PDFs im Ordner und in allen Unterordnern, deren Name zur Vorlage passt: Dateiname und erste Seite.",
+        ),
+    );
+    ui.horizontal(|ui| {
+        ui.label(tr("Ordner:"));
+        let text = s
+            .learn_folder
+            .as_ref()
+            .map_or_else(|| tr("nicht gewählt").to_string(), |p| p.display().to_string());
+        ui.add(egui::Label::new(RichText::new(text).monospace()).truncate());
+        if ui
+            .add_enabled(k.progress.is_none(), egui::Button::new(tr("Wählen …")))
+            .clicked()
+            && let Some(dir) = rfd::FileDialog::new()
+                .set_title(tr("Ordner zum Lernen wählen"))
+                .pick_folder()
+        {
+            s.learn_folder = Some(dir);
+            *changed = true;
+        }
+    });
+    if ui
+        .checkbox(&mut s.learn_with_ocr, tr("Auch Scans ohne Textebene lesen (langsam)"))
+        .changed()
+    {
+        *changed = true;
+    }
+    match &k.progress {
+        Some((done, total, name)) => {
+            ui.horizontal(|ui| {
+                let frac = if *total == 0 { 0.0 } else { *done as f32 / *total as f32 };
+                ui.add(
+                    egui::ProgressBar::new(frac)
+                        .desired_width(300.0)
+                        .text(format!("{done} / {total}")),
+                );
+                if ui.button(tr("Abbrechen")).clicked() {
+                    actions.push(Action::CancelLearning);
+                }
+            });
+            ui.add(egui::Label::new(RichText::new(name).small().weak()).truncate());
+        }
+        None => {
+            if ui
+                .add_enabled(s.learn_folder.is_some(), egui::Button::new(tr("Lernen starten")))
+                .clicked()
+            {
+                actions.push(Action::StartLearning);
+            }
+        }
+    }
+    if let Some(l) = k.last {
+        hint(
+            ui,
+            &trf(
+                "Zuletzt: {} PDFs gefunden, {} gelernt, {} mit anderem Namensschema übersprungen, {} nicht lesbar",
+                &[&l.files, &l.learned, &l.skipped_name, &l.errors],
+            ),
+        );
+    }
+
+    heading(ui, &trf("Bekannte Unternehmen ({})", &[&k.knowledge.unternehmen.len()]));
+    if k.knowledge.unternehmen.is_empty() {
+        hint(ui, tr("Noch nichts gelernt."));
+    } else {
+        egui::Grid::new("wissen")
+            .num_columns(5)
+            .striped(true)
+            .spacing([14.0, 4.0])
+            .show(ui, |ui| {
+                ui.label(RichText::new(tr("Name")).small().strong());
+                ui.label(RichText::new(tr("Kennungen")).small().strong());
+                ui.label(RichText::new(tr("Themen")).small().strong());
+                ui.label(RichText::new(tr("Dokumente")).small().strong());
+                ui.label("");
+                ui.end_row();
+                for (i, c) in k.knowledge.unternehmen.iter().enumerate() {
+                    ui.label(&c.name).on_hover_text(c.aliase.join(", "));
+                    let ids: Vec<&str> = c
+                        .kennungen
+                        .iter()
+                        .filter(|(_, v)| !v.is_empty())
+                        .map(|(kind, _)| id_label(*kind))
+                        .collect();
+                    ui.label(RichText::new(ids.join(", ")).small().weak());
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(c.topics().into_iter().take(2).collect::<Vec<_>>().join(", "))
+                                .small()
+                                .weak(),
+                        )
+                        .truncate(),
+                    );
+                    ui.label(c.anzahl.to_string());
+                    if ui.small_button(tr("Vergessen")).clicked() {
+                        actions.push(Action::ForgetCompany(i));
+                    }
+                    ui.end_row();
+                }
+            });
+    }
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        if let Some(f) = k.file
+            && ui.button(tr("Wissensdatei anzeigen")).clicked()
+        {
+            let dir = f.parent().unwrap_or(f);
+            crate::diagnose::open_in_system(dir);
+        }
+        let label = if st.confirm_forget {
+            tr("Wirklich alles vergessen?")
+        } else {
+            tr("Alles vergessen")
+        };
+        if ui
+            .add_enabled(!k.knowledge.unternehmen.is_empty(), egui::Button::new(label))
+            .clicked()
+        {
+            if st.confirm_forget {
+                actions.push(Action::ForgetKnowledge);
+            }
+            st.confirm_forget = !st.confirm_forget;
+        }
+    });
+}
+
+pub fn id_label(kind: af_core::knowledge::IdKind) -> &'static str {
+    use af_core::knowledge::IdKind;
+    match kind {
+        IdKind::UstId => tr("USt-IdNr."),
+        IdKind::Iban => "IBAN",
+        IdKind::Steuernummer => tr("Steuernummer"),
+        IdKind::Domain => tr("Domain"),
+    }
 }

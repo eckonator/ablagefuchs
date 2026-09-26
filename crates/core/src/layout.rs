@@ -132,7 +132,9 @@ fn page_lines(page: &PageText) -> Vec<Line> {
             if let Some(&last) = segment.last() {
                 let (prev, word) = (&page.words[last], &page.words[w]);
                 let gap = word.bbox.x - prev.bbox.right();
-                if gap > prev.font_size.max(word.font_size) * 3.0 {
+                // Große Lücke oder ganz andere Schriftgröße (Briefkopf neben kleiner Adressspalte): neue Zeile
+                let ratio = prev.font_size.max(word.font_size) / prev.font_size.min(word.font_size).max(0.1);
+                if gap > prev.font_size.max(word.font_size) * 3.0 || (ratio > 1.6 && gap > 2.0) {
                     lines.push(make_line(page, &segment));
                     segment.clear();
                 }

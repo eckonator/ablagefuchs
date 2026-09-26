@@ -12,6 +12,7 @@ mod file_list;
 mod fonts;
 mod form;
 mod i18n;
+mod learning;
 mod preview;
 mod settings;
 mod settings_ui;
@@ -41,6 +42,12 @@ fn main() -> eframe::Result {
         } else {
             ThemeSetting::Light
         };
+    }
+    // Entwicklerhilfe (nur Debug): Ordner für „Aus einem Ordner lernen“ vorgeben
+    if cfg!(debug_assertions)
+        && let Some(dir) = std::env::var_os("AF_LERNORDNER")
+    {
+        settings.learn_folder = Some(PathBuf::from(dir));
     }
     i18n::apply_setting(settings.language);
     // Optional: ein Ordner als Argument wird beim Start geöffnet
