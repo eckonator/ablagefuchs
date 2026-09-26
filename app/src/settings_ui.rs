@@ -17,6 +17,7 @@ pub enum Page {
     Naming,
     Folders,
     Knowledge,
+    Metadata,
     About,
 }
 
@@ -46,6 +47,7 @@ impl SettingsUi {
             "name" | "dateiname" => Page::Naming,
             "ordner" => Page::Folders,
             "wissen" => Page::Knowledge,
+            "metadaten" => Page::Metadata,
             "ueber" | "über" => Page::About,
             _ => Page::General,
         };
@@ -121,6 +123,7 @@ fn show_window(
                     (Page::Naming, "Dateiname"),
                     (Page::Folders, "Ordner"),
                     (Page::Knowledge, "Wissen"),
+                    (Page::Metadata, "Metadaten"),
                     (Page::About, "Über"),
                 ] {
                     if ui
@@ -139,6 +142,7 @@ fn show_window(
                     Page::Naming => naming(ui, st, settings, entries, changed),
                     Page::Folders => folders(ui, st, settings, changed),
                     Page::Knowledge => knowledge(ui, st, settings, k, actions, changed),
+                    Page::Metadata => metadata(ui, settings, changed),
                     Page::About => about(ui),
                 }
             });
@@ -699,5 +703,66 @@ pub fn id_label(kind: af_core::knowledge::IdKind) -> &'static str {
         IdKind::Iban => "IBAN",
         IdKind::Steuernummer => tr("Steuernummer"),
         IdKind::Domain => tr("Domain"),
+    }
+}
+
+fn metadata(ui: &mut egui::Ui, s: &mut Settings, changed: &mut bool) {
+    hint(
+        ui,
+        tr(
+            "Wird beim Umbenennen geschrieben, damit Spotlight bzw. die Windows-Suche Dokumente über Titel, Stichwörter und Inhalt findet.",
+        ),
+    );
+    heading(ui, tr("Ins PDF schreiben"));
+    let m = &mut s.meta;
+    let mut any = false;
+    any |= ui
+        .checkbox(
+            &mut m.info,
+            tr("PDF-Info (Titel, Autor, Stichwörter, Erstelldatum = Dokumentdatum)"),
+        )
+        .changed();
+    any |= ui.checkbox(&mut m.xmp, tr("XMP-Metadaten")).changed();
+    any |= ui
+        .checkbox(
+            &mut m.embed_ocr,
+            tr("Bei Scans die erkannte Schrift als unsichtbare Textebene einbetten (Volltextsuche)"),
+        )
+        .changed();
+    if cfg!(target_os = "macos") {
+        any |= ui
+            .checkbox(
+                &mut m.finder_tags,
+                tr("Finder-Tags setzen (Unternehmen, Jahr, Rechnung)"),
+            )
+            .changed();
+    }
+    heading(ui, tr("Titel-Vorlage"));
+    if ui
+        .add(
+            egui::TextEdit::singleline(&mut m.title_template)
+                .font(egui::TextStyle::Monospace)
+                .desired_width(f32::INFINITY),
+        )
+        .changed()
+    {
+        any = true;
+    }
+    if let Err(e) = Template::parse(&m.title_template) {
+        ui.colored_label(theme::bad(ui.ctx()), template_error(&e));
+    }
+    heading(ui, tr("Originale"));
+    any |= ui
+        .checkbox(
+            &mut m.keep_originals,
+            tr("Unveränderte Kopie in .ablagefuchs/originale/ im Eingangsordner behalten"),
+        )
+        .changed();
+    hint(
+        ui,
+        tr("Mit Kopie stellt „Rückgängig“ auch den ursprünglichen Inhalt wieder her, sonst nur den Dateinamen."),
+    );
+    if any {
+        *changed = true;
     }
 }

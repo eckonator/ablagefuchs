@@ -67,6 +67,11 @@ pub struct Entry {
     file_state: FileState,
     /// Stand des Wissens bei der Erkennung (ändert es sich, werden unbearbeitete Dateien neu erkannt)
     analyzed_rev: u64,
+    /// Im Formular überschriebener Titel bzw. Stichwörter (sonst aus den Feldern)
+    pub meta_title: Option<String>,
+    pub meta_keywords: Option<String>,
+    /// Andere Datei mit gleichem Inhalt/Text (doppelt gescannt?), wird je Bild aktualisiert
+    pub duplicate: Option<String>,
 }
 
 type FileState = (u64, Option<std::time::SystemTime>);
@@ -98,7 +103,11 @@ impl Entry {
     pub fn needs_check(&self) -> bool {
         self.is_open()
             && match &self.analysis {
-                AnalysisState::Ready(a) => !a.suggestion.is_complete() || a.suggestion.min_confidence() < threshold(),
+                AnalysisState::Ready(a) => {
+                    !a.suggestion.is_complete()
+                        || a.suggestion.min_confidence() < threshold()
+                        || self.duplicate.is_some()
+                }
                 AnalysisState::Failed(_) => true,
                 _ => false,
             }
@@ -170,6 +179,8 @@ pub enum Action {
     ForgetKnowledge,
     /// Thema aus den bekannten Themen übernehmen
     SetTopic(String),
+    /// Aktuelle Datei in den Papierkorb (doppelt gescannt)
+    TrashCurrent,
 }
 
 /// Ausgewählter Text aus der Vorschau, der als Feld übernommen werden kann.
@@ -372,6 +383,9 @@ impl App {
             render_pending: None,
             gone: false,
             analyzed_rev: 0,
+            meta_title: None,
+            meta_keywords: None,
+            duplicate: None,
             file_state: file_state(&path),
             path,
         }
@@ -592,9 +606,16 @@ impl App {
         };
         let template = template.clone();
         match self.rename_entry(i, &template) {
-            Some(Ok((new_name, id))) => {
+            Some(Ok((new_name, id, warning))) => {
                 self.undo_stack.push(vec![(i, id)]);
-                self.show_info(ctx, trf("Umbenannt → {}", &[&new_name]), true);
+                match warning {
+                    None => self.show_info(ctx, trf("Umbenannt → {}", &[&new_name]), true),
+                    Some(w) => self.show_info(
+                        ctx,
+                        trf("Umbenannt → {} (Metadaten nicht geschrieben: {})", &[&new_name, &w]),
+                        true,
+                    ),
+                }
                 match self.next_open_after(i) {
                     Some(next) => self.current = Some(next),
                     None => self.show_info(ctx, tr("Alle Dateien sind erledigt.").into(), true),
@@ -605,17 +626,31 @@ impl App {
         }
     }
 
-    /// Benennt einen Eintrag um, protokolliert es und lernt aus den bestätigten Feldern.
+    /// Benennt einen Eintrag um, protokolliert es, schreibt Metadaten und lernt aus den bestätigten Feldern.
     /// `None`, wenn der Eintrag nicht bereit ist (erledigt, Datum oder Unternehmen fehlt).
-    fn rename_entry(&mut self, i: usize, template: &Template) -> Option<Result<(String, u64), std::io::Error>> {
+    /// Im Erfolgsfall: neuer Name, Journal-Nummer und ggf. ein Hinweis, falls die Metadaten nicht geschrieben wurden.
+    fn rename_entry(
+        &mut self,
+        i: usize,
+        template: &Template,
+    ) -> Option<std::io::Result<(String, u64, Option<String>)>> {
         let e = &self.entries[i];
         if !e.is_open() || e.fields.datum.is_none() || e.fields.unternehmen.trim().is_empty() {
             return None;
         }
         let name = template.file_name(&e.fields, &self.settings.naming);
         let target_dir = self.target_dir(&e.path, &e.fields);
+        let meta_settings = self.settings.meta.clone();
+        // Original nur sichern, wenn die Datei überhaupt verändert wird
+        let backup_dir = (meta_settings.keep_originals && meta_settings.modifies_file())
+            .then(|| {
+                self.inbox
+                    .as_ref()
+                    .map(|d| d.join(af_core::files::DATA_DIR).join(af_core::files::BACKUP_DIR))
+            })
+            .flatten();
         let journal = self.journal.as_ref()?;
-        let entry = match journal.rename(&e.path, &target_dir, &name) {
+        let entry = match journal.rename(&e.path, &target_dir, &name, backup_dir.as_deref()) {
             Ok(entry) => entry,
             Err(err) => return Some(Err(err)),
         };
@@ -624,7 +659,9 @@ impl App {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
+        let warning = self.write_file_metadata(i, &entry.nach);
         // Lernen: bestätigte Felder, Kennungen und Briefkopf dieses Dokuments
+        let e = &self.entries[i];
         if self.settings.learn_from_corrections
             && let Some(s) = e.suggestion()
         {
@@ -636,7 +673,82 @@ impl App {
         let e = &mut self.entries[i];
         e.path = entry.nach.clone();
         e.done = Some(Some(entry.id));
-        Some(Ok((new_name, entry.id)))
+        Some(Ok((new_name, entry.id, warning)))
+    }
+
+    /// Titel, Stichwörter, XMP, OCR-Textebene und Finder-Tags. Fehler verhindern das Umbenennen nicht,
+    /// sie werden als Hinweis zurückgegeben.
+    fn write_file_metadata(&self, i: usize, path: &Path) -> Option<String> {
+        let m = &self.settings.meta;
+        let e = &self.entries[i];
+        let mut problems = Vec::new();
+        if m.modifies_file() {
+            let ocr_pages: &[af_core::PageText] = match &e.analysis {
+                AnalysisState::Ready(a) if m.embed_ocr && matches!(a.source, af_core::TextSource::Ocr { .. }) => {
+                    &a.text
+                }
+                _ => &[],
+            };
+            let opts = af_pdf::WriteOptions {
+                info: m.info,
+                xmp: m.xmp,
+            };
+            if (m.info || m.xmp || !ocr_pages.is_empty())
+                && let Err(err) = af_pdf::write_metadata(path, &self.pdf_meta(e), ocr_pages, opts)
+            {
+                log::warn!("Metadaten für {}: {err:#}", path.display());
+                problems.push(format!("{err:#}"));
+            }
+        }
+        if m.finder_tags
+            && let Err(err) = crate::tags::add_finder_tags(path, &finder_tags(&e.fields))
+        {
+            log::warn!("Finder-Tags für {}: {err}", path.display());
+            problems.push(err.to_string());
+        }
+        (!problems.is_empty()).then(|| problems.join("; "))
+    }
+
+    /// Andere Datei im Ordner mit gleichem Inhalt oder gleichem Text (doppelt gescannt?).
+    fn duplicate_of(&self, i: usize) -> Option<String> {
+        let AnalysisState::Ready(a) = &self.entries[i].analysis else {
+            return None;
+        };
+        self.entries.iter().enumerate().find_map(|(j, other)| {
+            if j == i || other.gone {
+                return None;
+            }
+            let AnalysisState::Ready(b) = &other.analysis else {
+                return None;
+            };
+            let same_bytes = a.content_key.is_some() && a.content_key == b.content_key;
+            let same_text = a.text_key.is_some() && a.text_key == b.text_key;
+            (same_bytes || same_text).then(|| other.file_name())
+        })
+    }
+
+    /// Metadaten aus den Feldern (oder den im Formular überschriebenen Werten).
+    pub fn pdf_meta(&self, e: &Entry) -> af_pdf::PdfMeta {
+        let f = &e.fields;
+        let title = e
+            .meta_title
+            .clone()
+            .unwrap_or_else(|| default_title(&self.settings.meta.title_template, f));
+        let keywords = match &e.meta_keywords {
+            Some(k) => k
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            None => default_keywords(f),
+        };
+        af_pdf::PdfMeta {
+            title,
+            author: f.unternehmen.clone(),
+            subject: f.thema.clone(),
+            keywords,
+            created: f.datum.map(|d| d.format("%Y-%m-%d").to_string()),
+        }
     }
 
     fn learn_correction(&mut self, (fields, info, replaced): (NameFields, af_core::LearnInfo, Option<String>)) {
@@ -644,17 +756,26 @@ impl App {
             self.pending_corrections.push((fields, info, replaced));
             return;
         }
-        std::sync::Arc::make_mut(&mut self.knowledge).learn(
+        let relevant = std::sync::Arc::make_mut(&mut self.knowledge).learn(
             &fields,
             &info.ids,
             info.letterhead.as_deref(),
             replaced.as_deref(),
         );
-        self.knowledge_changed();
+        // Nur wenn sich die Zuordnung ändern kann, andere Dateien neu erkennen; gespeichert wird immer
+        if relevant {
+            self.knowledge_changed();
+        } else {
+            self.save_knowledge();
+        }
     }
 
     fn knowledge_changed(&mut self) {
         self.knowledge_rev += 1;
+        self.save_knowledge();
+    }
+
+    fn save_knowledge(&self) {
         if let Some(path) = &self.knowledge_file
             && let Err(err) = self.knowledge.save(path)
         {
@@ -669,7 +790,7 @@ impl App {
         let mut failed = 0;
         for i in self.batch_candidates() {
             match self.rename_entry(i, &template) {
-                Some(Ok((_, id))) => group.push((i, id)),
+                Some(Ok((_, id, _))) => group.push((i, id)),
                 Some(Err(err)) => {
                     log::error!("Stapelmodus: {err}");
                     failed += 1;
@@ -701,6 +822,7 @@ impl App {
             .filter(|&i| {
                 let e = &self.entries[i];
                 e.is_open()
+                    && e.duplicate.is_none()
                     && match &e.analysis {
                         AnalysisState::Ready(a) => {
                             a.suggestion.is_complete()
@@ -898,6 +1020,23 @@ impl App {
             Action::ForgetKnowledge => {
                 self.knowledge = std::sync::Arc::new(af_core::knowledge::Knowledge::default());
                 self.knowledge_changed();
+            }
+            Action::TrashCurrent => {
+                if let Some(i) = self.current
+                    && let Some(e) = self.entries.get_mut(i)
+                {
+                    match trash::delete(&e.path) {
+                        Ok(()) => {
+                            e.gone = true;
+                            let name = e.file_name();
+                            self.show_info(ctx, trf("In den Papierkorb gelegt: {}", &[&name]), false);
+                            if let Some(next) = self.next_open_after(i) {
+                                self.current = Some(next);
+                            }
+                        }
+                        Err(err) => self.show_error(trf("Papierkorb nicht möglich: {}", &[&err])),
+                    }
+                }
             }
             Action::SetTopic(t) => {
                 if let Some(e) = self.current.and_then(|i| self.entries.get_mut(i)) {
@@ -1209,6 +1348,14 @@ impl eframe::App for App {
         self.apply_theme(&ctx);
         self.poll_worker(&ctx);
         self.poll_learning(&ctx);
+        for i in 0..self.entries.len() {
+            let d = if self.entries[i].is_open() {
+                self.duplicate_of(i)
+            } else {
+                None
+            };
+            self.entries[i].duplicate = d;
+        }
         let mut actions = Vec::new();
         self.shortcuts(&ctx, &mut actions);
 
@@ -1248,6 +1395,12 @@ impl eframe::App for App {
                     .map(|(_, e)| e.file_name())
                     .collect();
                 let (companies, topics) = self.completions();
+                let duplicate = self.entries[cur].duplicate.clone();
+                let meta_preview = {
+                    let e = &self.entries[cur];
+                    let m = self.pdf_meta(e);
+                    (m.title, m.keywords.join(", "), finder_tags(&e.fields))
+                };
                 let fctx = form::FormCtx {
                     template: self.template.as_ref().ok(),
                     naming: &self.settings.naming,
@@ -1257,6 +1410,9 @@ impl eframe::App for App {
                     can_undo: !self.undo_stack.is_empty(),
                     companies: &companies,
                     topics: &topics,
+                    duplicate: duplicate.as_deref(),
+                    meta: &self.settings.meta,
+                    meta_preview: &meta_preview,
                 };
                 egui::Panel::right("formular").exact_size(380.0).show(ui, |ui| {
                     hovered = form::show(ui, &mut self.entries[cur], &fctx, focus, &mut actions);
@@ -1326,4 +1482,43 @@ pub fn find_date(s: &str) -> Option<NaiveDate> {
             parse_date(w).or_else(|| parse_date(w.trim_end_matches('.')))
         })
     })
+}
+
+/// Titel nach Vorlage, ohne Bereinigung für Dateinamen (Umlaute, Leerzeichen bleiben).
+pub fn default_title(template: &str, f: &NameFields) -> String {
+    let opts = af_core::naming::NamingOptions {
+        transliterate_umlauts: false,
+        spaces: af_core::naming::Spaces::Keep,
+        strict: false,
+    };
+    let t = Template::parse(template)
+        .map(|t| t.render(f, &opts))
+        .unwrap_or_default();
+    t.trim().trim_end_matches(['–', '-']).trim().to_string()
+}
+
+/// Stichwörter: Unternehmen, Thema, Jahr und ggf. „Rechnung“.
+pub fn default_keywords(f: &NameFields) -> Vec<String> {
+    let mut k = vec![f.unternehmen.trim().to_string(), f.thema.trim().to_string()];
+    if let Some(d) = f.datum {
+        k.push(d.format("%Y").to_string());
+    }
+    if f.rechnung {
+        k.push("Rechnung".into());
+    }
+    k.retain(|s| !s.is_empty());
+    k
+}
+
+/// Finder-Tags: Unternehmen, Jahr und ggf. „Rechnung“.
+pub fn finder_tags(f: &NameFields) -> Vec<String> {
+    let mut t = vec![f.unternehmen.trim().to_string()];
+    if let Some(d) = f.datum {
+        t.push(d.format("%Y").to_string());
+    }
+    if f.rechnung {
+        t.push("Rechnung".into());
+    }
+    t.retain(|s| !s.is_empty());
+    t
 }

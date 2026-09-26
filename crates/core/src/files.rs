@@ -35,7 +35,13 @@ pub struct JournalEntry {
     /// bei `Rueckgaengig`: die zurückgenommene Nummer
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bezug: Option<u64>,
+    /// unveränderte Kopie des Originals (vor dem Schreiben von Metadaten), falls gesichert
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sicherung: Option<PathBuf>,
 }
+
+/// Unterordner für Originalkopien.
+pub const BACKUP_DIR: &str = "originale";
 
 #[derive(Debug, Clone)]
 pub struct Journal {
@@ -73,7 +79,14 @@ impl Journal {
             .collect()
     }
 
-    fn append(&self, aktion: Action, von: &Path, nach: &Path, bezug: Option<u64>) -> std::io::Result<JournalEntry> {
+    fn append(
+        &self,
+        aktion: Action,
+        von: &Path,
+        nach: &Path,
+        bezug: Option<u64>,
+        sicherung: Option<PathBuf>,
+    ) -> std::io::Result<JournalEntry> {
         let id = self.entries().last().map_or(1, |e| e.id + 1);
         let zeit = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -85,6 +98,7 @@ impl Journal {
             von: von.to_path_buf(),
             nach: nach.to_path_buf(),
             bezug,
+            sicherung,
         };
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -96,8 +110,28 @@ impl Journal {
     }
 
     /// Benennt `from` in `target_dir/name` um (Kollisionen → `_2` …) und protokolliert es.
-    pub fn rename(&self, from: &Path, target_dir: &Path, name: &str) -> std::io::Result<JournalEntry> {
+    /// Mit `backup_dir` wird vorher eine unveränderte Kopie dort abgelegt (für späteres Schreiben von Metadaten).
+    pub fn rename(
+        &self,
+        from: &Path,
+        target_dir: &Path,
+        name: &str,
+        backup_dir: Option<&Path>,
+    ) -> std::io::Result<JournalEntry> {
         std::fs::create_dir_all(target_dir)?;
+        let sicherung = match backup_dir {
+            Some(dir) => {
+                std::fs::create_dir_all(dir)?;
+                let original = from
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let copy = dir.join(dedupe(&original, |n| dir.join(n).exists()));
+                std::fs::copy(from, &copy)?;
+                Some(copy)
+            }
+            None => None,
+        };
         let name = dedupe(name, |n| {
             let candidate = target_dir.join(n);
             candidate.exists() && candidate != from
@@ -106,7 +140,7 @@ impl Journal {
         if to != from {
             move_file(from, &to)?;
         }
-        self.append(Action::Umbenannt, from, &to, None)
+        self.append(Action::Umbenannt, from, &to, None, sicherung)
     }
 
     /// Nimmt die Umbenennung mit der Nummer `id` zurück.
@@ -129,10 +163,18 @@ impl Journal {
                 format!("{} existiert wieder, nicht überschrieben", entry.von.display()),
             ));
         }
-        if entry.von != entry.nach {
-            move_file(&entry.nach, &entry.von)?;
+        match entry.sicherung.as_ref().filter(|s| s.is_file()) {
+            // Original gesichert: unveränderten Inhalt zurückholen, geänderte Datei entfernen
+            Some(backup) => {
+                move_file(backup, &entry.von)?;
+                if entry.nach != entry.von {
+                    std::fs::remove_file(&entry.nach)?;
+                }
+            }
+            None if entry.von != entry.nach => move_file(&entry.nach, &entry.von)?,
+            None => {}
         }
-        self.append(Action::Rueckgaengig, &entry.nach, &entry.von, Some(id))
+        self.append(Action::Rueckgaengig, &entry.nach, &entry.von, Some(id), None)
     }
 }
 
@@ -193,8 +235,8 @@ mod tests {
         std::fs::write(dir.join("scan1.pdf"), b"eins").unwrap();
         std::fs::write(dir.join("scan2.pdf"), b"zwei").unwrap();
 
-        let a = journal.rename(&dir.join("scan1.pdf"), &dir, "Ziel.pdf").unwrap();
-        let b = journal.rename(&dir.join("scan2.pdf"), &dir, "Ziel.pdf").unwrap();
+        let a = journal.rename(&dir.join("scan1.pdf"), &dir, "Ziel.pdf", None).unwrap();
+        let b = journal.rename(&dir.join("scan2.pdf"), &dir, "Ziel.pdf", None).unwrap();
         assert_eq!(a.nach, dir.join("Ziel.pdf"));
         assert_eq!(b.nach, dir.join("Ziel_2.pdf"));
         assert_eq!(std::fs::read(dir.join("Ziel_2.pdf")).unwrap(), b"zwei");
@@ -213,7 +255,7 @@ mod tests {
         let journal = Journal::for_inbox(&dir, None);
         std::fs::write(dir.join("scan.pdf"), b"x").unwrap();
         let e = journal
-            .rename(&dir.join("scan.pdf"), &dir.join("2026/Firma"), "Brief.pdf")
+            .rename(&dir.join("scan.pdf"), &dir.join("2026/Firma"), "Brief.pdf", None)
             .unwrap();
         assert!(e.nach.ends_with("2026/Firma/Brief.pdf") && e.nach.exists());
         journal.undo(e.id).unwrap();
@@ -226,10 +268,27 @@ mod tests {
         let dir = temp_dir("overwrite");
         let journal = Journal::for_inbox(&dir, None);
         std::fs::write(dir.join("scan.pdf"), b"alt").unwrap();
-        let e = journal.rename(&dir.join("scan.pdf"), &dir, "Neu.pdf").unwrap();
+        let e = journal.rename(&dir.join("scan.pdf"), &dir, "Neu.pdf", None).unwrap();
         std::fs::write(dir.join("scan.pdf"), b"neuer Scan mit gleichem Namen").unwrap();
         assert!(journal.undo(e.id).is_err());
         assert_eq!(std::fs::read(dir.join("Neu.pdf")).unwrap(), b"alt");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn backup_restores_original_content() {
+        let dir = temp_dir("backup");
+        let journal = Journal::for_inbox(&dir, None);
+        std::fs::write(dir.join("scan.pdf"), b"original").unwrap();
+        let backups = dir.join(DATA_DIR).join(BACKUP_DIR);
+        let e = journal
+            .rename(&dir.join("scan.pdf"), &dir, "Neu.pdf", Some(&backups))
+            .unwrap();
+        // Metadaten schreiben verändert die Datei
+        std::fs::write(dir.join("Neu.pdf"), b"mit Metadaten").unwrap();
+        journal.undo(e.id).unwrap();
+        assert_eq!(std::fs::read(dir.join("scan.pdf")).unwrap(), b"original");
+        assert!(!dir.join("Neu.pdf").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

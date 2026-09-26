@@ -13,6 +13,5 @@ af-core.workspace = true
 anyhow.workspace = true
 log.workspace = true
 pdfium-render.workspace = true
-
-[dev-dependencies]
 lopdf.workspace = true
+

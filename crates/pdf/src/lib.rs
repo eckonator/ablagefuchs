@@ -2,6 +2,10 @@
 //! PDF-Zugriff für Ablagefuchs. Rendern und Text mit Positionen über pdfium,
 //! Metadaten schreiben über lopdf (ab M6).
 
+mod meta;
+
+pub use meta::{PdfMeta, WriteOptions, write_metadata};
+
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 

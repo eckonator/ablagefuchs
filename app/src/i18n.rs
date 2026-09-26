@@ -148,6 +148,41 @@ fn en(de: &str) -> Option<&'static str> {
         "Leerzeichen" => "Spaces",
         "Leistungsdatum" => "service date",
         "Markierungen" => "Highlights",
+        "Bei Scans die erkannte Schrift als unsichtbare Textebene einbetten (Volltextsuche)" => {
+            "For scans, embed the recognized text as an invisible text layer (full-text search)"
+        }
+        "Die erkannte Schrift wird als unsichtbare Textebene eingebettet (Volltextsuche)." => {
+            "The recognized text is embedded as an invisible text layer (full-text search)."
+        }
+        "Doppelt gescannt?" => "Scanned twice?",
+        "Finder-Tags setzen (Unternehmen, Jahr, Rechnung)" => "Set Finder tags (company, year, invoice)",
+        "Finder-Tags" => "Finder tags",
+        "Gleicher Inhalt wie {}" => "Same content as {}",
+        "In den Papierkorb gelegt: {}" => "Moved to the trash: {}",
+        "In den Papierkorb" => "Move to trash",
+        "Ins PDF schreiben" => "Write into the PDF",
+        "Mit Kopie stellt „Rückgängig“ auch den ursprünglichen Inhalt wieder her, sonst nur den Dateinamen." => {
+            "With a copy, “Undo” also restores the original content, otherwise only the file name."
+        }
+        "Originale" => "Originals",
+        "Papierkorb nicht möglich: {}" => "Could not move to trash: {}",
+        "PDF-Info (Titel, Autor, Stichwörter, Erstelldatum = Dokumentdatum)" => {
+            "PDF info (title, author, keywords, creation date = document date)"
+        }
+        "PDF-Metadaten (bearbeitet)" => "PDF metadata (edited)",
+        "PDF-Metadaten" => "PDF metadata",
+        "Stichwörter (kommagetrennt)" => "Keywords (comma-separated)",
+        "Titel-Vorlage" => "Title template",
+        "Titel" => "Title",
+        "Umbenannt → {} (Metadaten nicht geschrieben: {})" => "Renamed → {} (metadata not written: {})",
+        "Unveränderte Kopie in .ablagefuchs/originale/ im Eingangsordner behalten" => {
+            "Keep an unmodified copy in .ablagefuchs/originale/ in the inbox folder"
+        }
+        "Wird beim Umbenennen geschrieben, damit Spotlight bzw. die Windows-Suche Dokumente über Titel, Stichwörter und Inhalt findet." => {
+            "Written when renaming, so Spotlight or Windows Search finds documents by title, keywords and content."
+        }
+        "XMP-Metadaten" => "XMP metadata",
+        "Metadaten" => "Metadata",
         "⚡ Sichere übernehmen ({})" => "⚡ Accept confident ({})",
         "{} Dateien im Stapel umbenannt" => "{} files renamed in batch",
         "{} Dateien umbenannt, {} fehlgeschlagen (siehe Logdatei)" => "{} files renamed, {} failed (see log file)",

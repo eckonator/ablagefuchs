@@ -23,3 +23,8 @@ dirs = "7"
 sys-locale = "0.3"
 # „pure“: ohne C/Assembler, baut damit überall gleich (auch beim Gegencheck für Windows auf dem Mac)
 blake3 = { version = "1", features = ["pure"] }
+trash = "5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+xattr = "1"
+plist = "1"

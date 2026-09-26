@@ -82,6 +82,43 @@ pub struct Settings {
     pub learn_folder: Option<PathBuf>,
     /// Beim Lernen aus einem Ordner auch Scans ohne Textebene lesen (langsam)
     pub learn_with_ocr: bool,
+    /// Metadaten beim Umbenennen
+    pub meta: MetaSettings,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MetaSettings {
+    /// PDF-Info: Titel, Autor, Stichwörter, Erstelldatum = Dokumentdatum
+    pub info: bool,
+    pub xmp: bool,
+    /// Finder-Tags (macOS): Unternehmen, Jahr, „Rechnung“
+    pub finder_tags: bool,
+    /// Bei Scans die erkannte Schrift als unsichtbare Textebene einbetten (Volltextsuche)
+    pub embed_ocr: bool,
+    /// Unveränderte Kopie in `.ablagefuchs/originale/` behalten (Rückgängig holt sie zurück)
+    pub keep_originals: bool,
+    pub title_template: String,
+}
+
+impl Default for MetaSettings {
+    fn default() -> Self {
+        MetaSettings {
+            info: true,
+            xmp: true,
+            finder_tags: true,
+            embed_ocr: true,
+            keep_originals: false,
+            title_template: "{unternehmen} – {thema}".into(),
+        }
+    }
+}
+
+impl MetaSettings {
+    /// Wird die Datei beim Umbenennen überhaupt verändert?
+    pub fn modifies_file(&self) -> bool {
+        self.info || self.xmp || self.embed_ocr
+    }
 }
 
 impl Default for Settings {
@@ -104,6 +141,8 @@ impl Default for Settings {
             learn_from_corrections: true,
             learn_folder: None,
             learn_with_ocr: false,
+            meta: MetaSettings::default(),
+
             zoom: 1.0,
         }
     }
