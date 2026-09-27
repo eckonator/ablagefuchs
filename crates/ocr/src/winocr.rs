@@ -33,7 +33,7 @@ impl OcrEngine for WindowsOcr {
         let engine = engine().ok_or_else(|| anyhow::anyhow!("Windows OCR: keine Sprache verfügbar"))?;
         // Windows erwartet BGRA
         let mut bgra = image.pixels.to_vec();
-        for px in bgra.chunks_exact_mut(4) {
+        for px in bgra.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
         }
         let writer = DataWriter::new()?;
