@@ -48,6 +48,8 @@ static SALUTATION: LazyLock<Regex> =
 static AMOUNT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-?[\d.]+,\d{2}\s?€?$|€$").unwrap());
 static LEADING_DATE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d{1,2}\.\d{1,2}\.\d{2,4}\s+").unwrap());
 static TRAILING_PARENS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*\([^)]*\)$").unwrap());
+/// Angabe aus dem Infoblock („Rechnungsnummer: BR-2026-7781“, „Kundennummer: 4711“, „Datum: …“), nie ein Betreff
+static KEY_VALUE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\p{L}[\p{L}\s./-]{0,40}:\s*\S").unwrap());
 
 /// Wörter, die nur „Rechnung“ sagen und kein Thema sind.
 const INVOICE_ONLY: [&str; 12] = [
@@ -99,13 +101,26 @@ fn from_subject(layout: &Layout) -> Option<TopicResult> {
         .iter()
         .find(|l| l.page == 1 && SALUTATION.is_match(&l.text))
         .map_or(f32::MAX, |l| l.bbox.y);
-    let line = layout.lines.iter().find(|l| {
-        l.page == 1
-            && l.zone == Zone::Body
-            && l.bbox.y > height * 0.25
-            && l.bbox.y < salutation_y
-            && ((l.bold && l.font_size >= body * 0.95) || l.font_size >= body * 1.1 || BETREFF.is_match(&l.text))
-    })?;
+    // Unter den Kandidaten zählt die größte Schrift, bei gleicher Größe die oberste Zeile: Schriftgrößen
+    // aus der Texterkennung schwanken, sodass auch eine Zeile aus dem Infoblock knapp „groß“ wirken kann
+    let line = layout
+        .lines
+        .iter()
+        .filter(|l| {
+            l.page == 1
+                && l.zone == Zone::Body
+                && l.bbox.y > height * 0.25
+                && l.bbox.y < salutation_y
+                && (BETREFF.is_match(&l.text) || !KEY_VALUE.is_match(&l.text))
+                && ((l.bold && l.font_size >= body * 0.95) || l.font_size >= body * 1.1 || BETREFF.is_match(&l.text))
+        })
+        .reduce(|best, l| {
+            if BETREFF.is_match(&best.text) || (l.font_size <= best.font_size * 1.02 && !BETREFF.is_match(&l.text)) {
+                best
+            } else {
+                l
+            }
+        })?;
     let (text, transformed) = normalize(&line.text);
     let text = text.filter(|t| crate::company::plausible(t))?;
     Some(TopicResult {
