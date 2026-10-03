@@ -30,6 +30,8 @@ pub struct FormCtx<'a> {
     pub meta: &'a crate::settings::MetaSettings,
     /// (Titel, Stichwörter, Finder-Tags), wie sie geschrieben würden
     pub meta_preview: &'a (String, String, Vec<String>),
+    /// Prüfliste: nur lernen, nicht umbenennen
+    pub review: bool,
 }
 
 /// Höchstens so viele Einträge in der Vorschlagsliste.
@@ -54,15 +56,19 @@ pub fn show(
     ui.data_mut(|d| d.insert_temp(egui::Id::new(COMPLETION_ACTIVE), false));
     egui::Panel::bottom("formular-aktionen").show(ui, |ui| {
         ui.add_space(8.0);
-        let ready =
-            e.is_open() && e.fields.datum.is_some() && !e.fields.unternehmen.trim().is_empty() && c.template.is_some();
-        let accept = egui::Button::new(
-            RichText::new(format!("{}   ↵", tr("Umbenennen & weiter")))
-                .strong()
-                .color(Color32::WHITE),
-        )
-        .fill(theme::accent(ui.ctx()))
-        .min_size(egui::vec2(ui.available_width(), 34.0));
+        let ready = if c.review {
+            e.is_open() && !e.fields.unternehmen.trim().is_empty() && e.suggestion().is_some()
+        } else {
+            e.is_open() && e.fields.datum.is_some() && !e.fields.unternehmen.trim().is_empty() && c.template.is_some()
+        };
+        let label = if c.review {
+            tr("Lernen & weiter")
+        } else {
+            tr("Umbenennen & weiter")
+        };
+        let accept = egui::Button::new(RichText::new(format!("{label}   ↵")).strong().color(Color32::WHITE))
+            .fill(theme::accent(ui.ctx()))
+            .min_size(egui::vec2(ui.available_width(), 34.0));
         if ui.add_enabled(ready, accept).clicked() {
             actions.push(Action::Accept);
         }
@@ -473,6 +479,21 @@ fn result_box(ui: &mut egui::Ui, e: &Entry, c: &FormCtx<'_>) {
         .inner_margin(egui::Margin::same(12))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
+            if c.review {
+                ui.label(RichText::new(tr("Nur lernen")).small().strong().weak());
+                ui.label(RichText::new(&e.original).monospace().small());
+                ui.label(
+                    RichText::new(tr(
+                        "Die Datei behält ihren Namen. Ablagefuchs merkt sich Firma, Kennungen und Briefkopf.",
+                    ))
+                    .small()
+                    .weak(),
+                );
+                if e.fields.unternehmen.trim().is_empty() {
+                    ui.colored_label(theme::warn(&ctx), tr("Unternehmen fehlt"));
+                }
+                return;
+            }
             ui.label(RichText::new(tr("Neuer Dateiname")).small().strong().weak());
             ui.label(RichText::new(&e.original).monospace().small().strikethrough().weak());
             let Some(template) = c.template else {

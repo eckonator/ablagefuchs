@@ -29,6 +29,13 @@ pub struct SettingsUi {
     folder_buf: String,
     /// „Alles vergessen“ wurde einmal geklickt und wartet auf Bestätigung
     confirm_forget: bool,
+    /// Wissen: Suche, gewähltes Unternehmen, Eingabe für den neuen Namen, Ziel zum Zusammenführen
+    search: String,
+    selected: Option<usize>,
+    rename_buf: String,
+    merge_target: Option<usize>,
+    /// Mögliche Doppel mit dem Wissensstand, für den sie berechnet wurden
+    duplicates: Option<(u64, Vec<(usize, usize)>)>,
 }
 
 /// Was die Seite „Wissen“ anzeigt.
@@ -38,6 +45,8 @@ pub struct KnowledgeCtx<'a> {
     pub progress: Option<(usize, usize, String)>,
     pub last: Option<&'a af_ocr::archive::LearnStats>,
     pub file: Option<&'a std::path::Path>,
+    /// Stand des Wissens (ändert sich bei jeder Änderung)
+    pub rev: u64,
 }
 
 impl SettingsUi {
@@ -51,6 +60,12 @@ impl SettingsUi {
             "ueber" | "über" => Page::About,
             _ => Page::General,
         };
+        self.template_buf = settings.template.clone();
+        self.folder_buf = settings.folder_template.clone();
+    }
+
+    /// Eingabefelder neu aus den Einstellungen füllen (nach einem Import).
+    pub fn reload(&mut self, settings: &Settings) {
         self.template_buf = settings.template.clone();
         self.folder_buf = settings.folder_template.clone();
     }
@@ -138,7 +153,7 @@ fn show_window(
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 match st.page {
-                    Page::General => general(ui, settings, changed),
+                    Page::General => general(ui, settings, actions, changed),
                     Page::Naming => naming(ui, st, settings, entries, changed),
                     Page::Folders => folders(ui, st, settings, changed),
                     Page::Knowledge => knowledge(ui, st, settings, k, actions, changed),
@@ -159,7 +174,7 @@ fn hint(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).small().weak());
 }
 
-fn general(ui: &mut egui::Ui, s: &mut Settings, changed: &mut bool) {
+fn general(ui: &mut egui::Ui, s: &mut Settings, actions: &mut Vec<Action>, changed: &mut bool) {
     heading(ui, tr("Sprache"));
     ui.horizontal(|ui| {
         for (v, label) in [
@@ -241,6 +256,22 @@ fn general(ui: &mut egui::Ui, s: &mut Settings, changed: &mut bool) {
         ui,
         tr(
             "Dateien, bei denen jedes Feld mindestens so sicher erkannt ist, gelten als sicher: nicht unter „Prüfen“ und im Stapelmodus ohne Rückfrage umbenannt.",
+        ),
+    );
+
+    heading(ui, tr("Auf ein anderes Gerät übertragen"));
+    ui.horizontal(|ui| {
+        if ui.button(tr("Exportieren …")).clicked() {
+            actions.push(Action::ExportBackup);
+        }
+        if ui.button(tr("Importieren …")).clicked() {
+            actions.push(Action::ImportBackup);
+        }
+    });
+    hint(
+        ui,
+        tr(
+            "Sichert alle Einstellungen und das gelernte Wissen in eine Datei. Beim Import wird das Wissen mit dem vorhandenen zusammengeführt; Grafik und zuletzt geöffnete Ordner bleiben, Ordner werden nur übernommen, wenn es sie auf diesem Gerät gibt.",
         ),
     );
 
@@ -587,7 +618,7 @@ fn knowledge(
     hint(
         ui,
         tr(
-            "Liest alle PDFs im Ordner und in allen Unterordnern, deren Name zur Vorlage passt: Dateiname und erste Seite.",
+            "Liest alle PDFs im Ordner und in allen Unterordnern: Dateiname und erste Seite. Namen nach der Vorlage gelten direkt; bei anderen Namen muss der Brief die Firma bestätigen (Briefkopf, Fußzeile oder bekannte USt-IdNr./IBAN).",
         ),
     );
     ui.horizontal(|ui| {
@@ -642,51 +673,59 @@ fn knowledge(
         hint(
             ui,
             &trf(
-                "Zuletzt: {} PDFs gefunden, {} gelernt, {} mit anderem Namensschema übersprungen, {} nicht lesbar",
-                &[&l.files, &l.learned, &l.skipped_name, &l.errors],
+                "Zuletzt: {} PDFs gefunden, {} neu gelernt, {} schon bekannt, {} ohne Firma im Namen, {} Firma nicht im Brief bestätigt, {} nicht lesbar",
+                &[
+                    &l.files,
+                    &l.learned,
+                    &l.already,
+                    &l.skipped_name,
+                    &l.unconfirmed,
+                    &l.errors,
+                ],
             ),
         );
+        if l.unconfirmed > 0 {
+            hint(
+                ui,
+                &trf(
+                    "Nicht bestätigt: {} ohne erkannten Text, {} Firma nur im Fließtext, {} ähnlich geschrieben (Lesefehler?), {} gar nicht gefunden (Logo, Abkürzung)",
+                    &[&l.miss_no_text, &l.miss_in_body, &l.miss_similar, &l.miss_missing],
+                ),
+            );
+        }
+        if !l.unconfirmed_files.is_empty()
+            && ui
+                .add_enabled(
+                    k.progress.is_none(),
+                    egui::Button::new(trf("Nicht gelernte Dateien durchgehen ({})", &[&l.unconfirmed_files.len()])),
+                )
+                .on_hover_text(tr(
+                    "Öffnet die Dateien wie einen Eingangsordner. Du bestätigst die Firma, Ablagefuchs lernt daraus; umbenannt wird nichts.",
+                ))
+                .clicked()
+        {
+            actions.push(Action::ReviewUnlearned);
+        }
     }
 
+    let learning = k.progress.is_some();
     heading(ui, &trf("Bekannte Unternehmen ({})", &[&k.knowledge.unternehmen.len()]));
     if k.knowledge.unternehmen.is_empty() {
         hint(ui, tr("Noch nichts gelernt."));
     } else {
-        egui::Grid::new("wissen")
-            .num_columns(5)
-            .striped(true)
-            .spacing([14.0, 4.0])
-            .show(ui, |ui| {
-                ui.label(RichText::new(tr("Name")).small().strong());
-                ui.label(RichText::new(tr("Kennungen")).small().strong());
-                ui.label(RichText::new(tr("Themen")).small().strong());
-                ui.label(RichText::new(tr("Dokumente")).small().strong());
-                ui.label("");
-                ui.end_row();
-                for (i, c) in k.knowledge.unternehmen.iter().enumerate() {
-                    ui.label(&c.name).on_hover_text(c.aliase.join(", "));
-                    let ids: Vec<&str> = c
-                        .kennungen
-                        .iter()
-                        .filter(|(_, v)| !v.is_empty())
-                        .map(|(kind, _)| id_label(*kind))
-                        .collect();
-                    ui.label(RichText::new(ids.join(", ")).small().weak());
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new(c.topics().into_iter().take(2).collect::<Vec<_>>().join(", "))
-                                .small()
-                                .weak(),
-                        )
-                        .truncate(),
-                    );
-                    ui.label(c.anzahl.to_string());
-                    if ui.small_button(tr("Vergessen")).clicked() {
-                        actions.push(Action::ForgetCompany(i));
-                    }
-                    ui.end_row();
-                }
-            });
+        if learning {
+            hint(ui, tr("Während des Lernens kann nichts bearbeitet werden."));
+        }
+        duplicates(ui, st, k, actions, learning);
+        ui.horizontal(|ui| {
+            ui.label(tr("Suchen:"));
+            ui.add(egui::TextEdit::singleline(&mut st.search).desired_width(220.0));
+        });
+        ui.add_space(4.0);
+        company_table(ui, st, k);
+        if let Some(i) = st.selected.filter(|&i| i < k.knowledge.unternehmen.len()) {
+            company_editor(ui, st, k, i, actions, learning);
+        }
     }
     ui.add_space(8.0);
     ui.horizontal(|ui| {
@@ -702,14 +741,226 @@ fn knowledge(
             tr("Alles vergessen")
         };
         if ui
-            .add_enabled(!k.knowledge.unternehmen.is_empty(), egui::Button::new(label))
+            .add_enabled(
+                !k.knowledge.unternehmen.is_empty() && !learning,
+                egui::Button::new(label),
+            )
             .clicked()
         {
             if st.confirm_forget {
                 actions.push(Action::ForgetKnowledge);
+                st.selected = None;
             }
             st.confirm_forget = !st.confirm_forget;
         }
+    });
+}
+
+/// Mögliche Doppel (werden nur neu berechnet, wenn sich das Wissen ändert).
+fn duplicates(ui: &mut egui::Ui, st: &mut SettingsUi, k: &KnowledgeCtx<'_>, actions: &mut Vec<Action>, learning: bool) {
+    if st.duplicates.as_ref().is_none_or(|(rev, _)| *rev != k.rev) {
+        st.duplicates = Some((k.rev, k.knowledge.likely_duplicates()));
+    }
+    let Some((_, pairs)) = &st.duplicates else { return };
+    if pairs.is_empty() {
+        return;
+    }
+    let companies = &k.knowledge.unternehmen;
+    egui::CollapsingHeader::new(trf("Mögliche Doppel ({})", &[&pairs.len()]))
+        .id_salt("doppel")
+        .default_open(true)
+        .show(ui, |ui| {
+            hint(
+                ui,
+                tr("Zusammenführen behält den Namen des Unternehmens mit mehr Dokumenten; der andere wird zur weiteren Schreibweise."),
+            );
+            for &(a, b) in pairs.iter().take(8) {
+                let (Some(ca), Some(cb)) = (companies.get(a), companies.get(b)) else { continue };
+                // in das häufigere zusammenführen
+                let (from, into) = if ca.anzahl >= cb.anzahl { (b, a) } else { (a, b) };
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::Label::new(format!("{} ({}) ↔ {} ({})", ca.name, ca.anzahl, cb.name, cb.anzahl))
+                            .truncate(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.add_enabled(!learning, egui::Button::new(tr("Kein Doppel")).small()).clicked() {
+                            actions.push(Action::DismissDuplicate(ca.name.clone(), cb.name.clone()));
+                        }
+                        if ui
+                            .add_enabled(!learning, egui::Button::new(tr("Zusammenführen")).small())
+                            .on_hover_text(trf("→ {}", &[&companies[into].name]))
+                            .clicked()
+                        {
+                            actions.push(Action::MergeCompanies { from, into });
+                            st.selected = None;
+                        }
+                    });
+                });
+            }
+            if pairs.len() > 8 {
+                hint(ui, &trf("… und {} weitere", &[&(pairs.len() - 8)]));
+            }
+        });
+}
+
+/// Tabelle der Unternehmen (gefiltert über die Suche); Klick auf eine Zeile wählt sie zum Bearbeiten.
+fn company_table(ui: &mut egui::Ui, st: &mut SettingsUi, k: &KnowledgeCtx<'_>) {
+    // Feste Spaltenbreiten: lange Namen und Kennungslisten werden gekürzt (Rest im Tooltip),
+    // statt das Fenster zu verbreitern
+    let spacing = 14.0;
+    let docs = 70.0;
+    let rest = (ui.available_width() - docs - 3.0 * spacing).max(150.0);
+    let widths = [rest * 0.4, rest * 0.3, rest * 0.3, docs];
+    let cell = |ui: &mut egui::Ui, width: f32, text: RichText, hover: &str| {
+        ui.allocate_ui_with_layout(
+            egui::vec2(width, ui.spacing().interact_size.y),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.set_width(width);
+                let r = ui.add(egui::Label::new(text).truncate());
+                if !hover.is_empty() {
+                    r.on_hover_text(hover);
+                }
+            },
+        );
+    };
+    let needle = st.search.trim().to_lowercase();
+    let selected = st.selected;
+    egui::Grid::new("wissen")
+        .num_columns(4)
+        .striped(true)
+        .spacing([spacing, 4.0])
+        .show(ui, |ui| {
+            for (label, width) in ["Name", "Kennungen", "Themen", "Dokumente"].into_iter().zip(widths) {
+                cell(ui, width, RichText::new(tr(label)).small().strong(), "");
+            }
+            ui.end_row();
+            for (i, c) in k.knowledge.unternehmen.iter().enumerate() {
+                if !needle.is_empty()
+                    && !std::iter::once(&c.name)
+                        .chain(c.aliase.iter())
+                        .any(|n| n.to_lowercase().contains(&needle))
+                {
+                    continue;
+                }
+                // Name als auswählbarer Eintrag: Klick öffnet den Bearbeiten-Bereich darunter
+                ui.allocate_ui_with_layout(
+                    egui::vec2(widths[0], ui.spacing().interact_size.y),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.set_width(widths[0]);
+                        let name = if selected == Some(i) {
+                            RichText::new(&c.name).strong().color(theme::accent(ui.ctx()))
+                        } else {
+                            RichText::new(&c.name)
+                        };
+                        let r = ui
+                            .add(egui::Label::new(name).truncate().sense(egui::Sense::click()))
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                        let r = if c.aliase.is_empty() {
+                            r
+                        } else {
+                            r.on_hover_text(c.aliase.join(", "))
+                        };
+                        if r.clicked() {
+                            st.selected = if selected == Some(i) { None } else { Some(i) };
+                            st.rename_buf = c.name.clone();
+                            st.merge_target = None;
+                        }
+                    },
+                );
+                let ids: Vec<&str> = c
+                    .kennungen
+                    .iter()
+                    .filter(|(_, v)| !v.is_empty())
+                    .map(|(kind, _)| id_label(*kind))
+                    .collect();
+                let ids = ids.join(", ");
+                cell(ui, widths[1], RichText::new(&ids).small().weak(), &ids);
+                let topics = c.topics().into_iter().take(5).collect::<Vec<_>>().join(", ");
+                cell(ui, widths[2], RichText::new(&topics).small().weak(), &topics);
+                cell(ui, widths[3], RichText::new(c.anzahl.to_string()), "");
+                ui.end_row();
+            }
+        });
+}
+
+/// Bearbeiten-Bereich für das gewählte Unternehmen: umbenennen, zusammenführen, vergessen.
+fn company_editor(
+    ui: &mut egui::Ui,
+    st: &mut SettingsUi,
+    k: &KnowledgeCtx<'_>,
+    i: usize,
+    actions: &mut Vec<Action>,
+    learning: bool,
+) {
+    let companies = &k.knowledge.unternehmen;
+    let c = &companies[i];
+    ui.add_space(6.0);
+    egui::Frame::group(ui.style()).corner_radius(8).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.add_enabled_ui(!learning, |ui| {
+            ui.label(RichText::new(trf("„{}“ bearbeiten", &[&c.name])).strong());
+            if !c.aliase.is_empty() {
+                hint(ui, &trf("Weitere Schreibweisen: {}", &[&c.aliase.join(", ")]));
+            }
+            ui.horizontal(|ui| {
+                ui.label(tr("Name:"));
+                let edit = ui.add(egui::TextEdit::singleline(&mut st.rename_buf).desired_width(260.0));
+                let enter = edit.lost_focus() && ui.input(|inp| inp.key_pressed(egui::Key::Enter));
+                let new = st.rename_buf.trim();
+                if (ui
+                    .add_enabled(!new.is_empty() && new != c.name, egui::Button::new(tr("Umbenennen")))
+                    .clicked()
+                    || enter)
+                    && !new.is_empty()
+                    && new != c.name
+                {
+                    actions.push(Action::RenameCompany(i, new.to_string()));
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label(tr("Zusammenführen mit:"));
+                let current = st
+                    .merge_target
+                    .and_then(|j| companies.get(j))
+                    .map_or_else(|| tr("Unternehmen wählen …").to_string(), |t| t.name.clone());
+                egui::ComboBox::from_id_salt("zusammenfuehren")
+                    .selected_text(current)
+                    .width(260.0)
+                    .height(300.0)
+                    .show_ui(ui, |ui| {
+                        let mut others: Vec<(usize, &str)> = companies
+                            .iter()
+                            .enumerate()
+                            .filter(|&(j, _)| j != i)
+                            .map(|(j, o)| (j, o.name.as_str()))
+                            .collect();
+                        others.sort_by_key(|(_, n)| n.to_lowercase());
+                        for (j, name) in others {
+                            ui.selectable_value(&mut st.merge_target, Some(j), name);
+                        }
+                    });
+                if let Some(j) = st.merge_target.filter(|&j| j < companies.len() && j != i)
+                    && ui
+                        .button(tr("Zusammenführen"))
+                        .on_hover_text(trf(
+                            "„{}“ wird zu einer Schreibweise von „{}“",
+                            &[&c.name, &companies[j].name],
+                        ))
+                        .clicked()
+                {
+                    actions.push(Action::MergeCompanies { from: i, into: j });
+                    st.selected = None;
+                    st.merge_target = None;
+                }
+            });
+            if ui.button(tr("Vergessen")).clicked() {
+                actions.push(Action::ForgetCompany(i));
+                st.selected = None;
+            }
+        });
     });
 }
 

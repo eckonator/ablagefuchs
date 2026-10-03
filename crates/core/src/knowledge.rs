@@ -68,6 +68,8 @@ impl Company {
 pub struct Knowledge {
     pub version: u32,
     pub unternehmen: Vec<Company>,
+    /// Paare, die der Nutzer als verschiedene Unternehmen bestätigt hat (keine Doppel-Vorschläge mehr)
+    pub keine_doppel: Vec<(String, String)>,
 }
 
 impl Default for Knowledge {
@@ -75,6 +77,7 @@ impl Default for Knowledge {
         Knowledge {
             version: VERSION,
             unternehmen: Vec::new(),
+            keine_doppel: Vec::new(),
         }
     }
 }
@@ -198,6 +201,31 @@ pub fn normalize_name(name: &str) -> String {
         .join(" ")
 }
 
+/// Übernimmt Aliase, Kennungen, Themen und Zähler von `c` in `own`; `count` verknüpft die Zähler
+/// (Maximum beim Import, Summe beim Zusammenführen).
+fn absorb(own: &mut Company, c: Company, count: impl Fn(u32, u32) -> u32) {
+    for a in std::iter::once(c.name).chain(c.aliase) {
+        let n = normalize_name(&a);
+        if n != normalize_name(&own.name) && !own.aliase.iter().any(|x| normalize_name(x) == n) {
+            own.aliase.push(a);
+        }
+    }
+    for (kind, values) in c.kennungen {
+        let list = own.kennungen.entry(kind).or_default();
+        for v in values {
+            if !list.contains(&v) {
+                list.push(v);
+            }
+        }
+    }
+    for (thema, n) in c.themen {
+        let e = own.themen.entry(thema).or_insert(0);
+        *e = count(*e, n);
+    }
+    own.rechnungen = count(own.rechnungen, c.rechnungen);
+    own.anzahl = count(own.anzahl, c.anzahl);
+}
+
 impl Knowledge {
     pub fn find_company(&self, name: &str) -> Option<usize> {
         let n = normalize_name(name);
@@ -217,9 +245,8 @@ impl Knowledge {
             .collect()
     }
 
-    /// Sucht das Unternehmen eines Dokuments: zuerst über eindeutige Kennungen, dann über den Namen im Briefkopf.
-    pub fn match_document(&self, layout: &Layout, ids: &[FoundId]) -> Option<Match> {
-        // Kennungen: Mehrheitsentscheid unter den eindeutigen
+    /// Unternehmen über eindeutige Kennungen (Mehrheitsentscheid unter den eindeutigen).
+    pub fn match_ids(&self, ids: &[FoundId]) -> Option<Match> {
         let mut votes: BTreeMap<usize, (usize, &FoundId)> = BTreeMap::new();
         for id in ids {
             if let [owner] = self.id_owners(id.kind, &id.value)[..] {
@@ -227,14 +254,22 @@ impl Knowledge {
                 e.0 += 1;
             }
         }
-        if let Some((&company, &(agreeing, id))) = votes.iter().max_by_key(|(_, (n, _))| *n) {
-            return Some(Match::ById {
+        votes
+            .iter()
+            .max_by_key(|(_, (n, _))| *n)
+            .map(|(&company, &(agreeing, id))| Match::ById {
                 company,
                 kind: id.kind,
                 agreeing,
                 page: id.page,
                 rect: id.rect,
-            });
+            })
+    }
+
+    /// Sucht das Unternehmen eines Dokuments: zuerst über eindeutige Kennungen, dann über den Namen im Briefkopf.
+    pub fn match_document(&self, layout: &Layout, ids: &[FoundId]) -> Option<Match> {
+        if let Some(m) = self.match_ids(ids) {
+            return Some(m);
         }
         // Name/Alias: in Briefkopf, Absenderzeile oder Fußzeile der ersten Seite (nicht im Fließtext,
         // wo andere Firmen erwähnt sein können)
@@ -373,6 +408,118 @@ impl Knowledge {
         self.unternehmen.iter().map(|c| c.name.clone()).collect()
     }
 
+    /// Führt Wissen von einem anderen Gerät hinzu. Gleiche Unternehmen (über Name oder Alias) werden vereint:
+    /// Aliase und Kennungen zusammen, Zähler als Maximum (so zählt ein zweiter Import nichts doppelt).
+    /// Gibt die Zahl der neu hinzugekommenen Unternehmen zurück.
+    pub fn merge(&mut self, other: Knowledge) -> usize {
+        let mut added = 0;
+        for c in other.unternehmen {
+            let found = std::iter::once(&c.name)
+                .chain(c.aliase.iter())
+                .find_map(|n| self.find_company(n));
+            match found {
+                Some(i) => absorb(&mut self.unternehmen[i], c, u32::max),
+                None => {
+                    self.unternehmen.push(c);
+                    added += 1;
+                }
+            }
+        }
+        for pair in other.keine_doppel {
+            if !self.keine_doppel.contains(&pair) {
+                self.keine_doppel.push(pair);
+            }
+        }
+        added
+    }
+
+    /// Neuer Name für ein Unternehmen (der alte bleibt als Alias, damit Briefe mit ihm weiter erkannt werden).
+    /// Heißt schon ein anderes Unternehmen so, passiert nichts und dessen Nummer kommt zurück
+    /// (dann ist Zusammenführen gemeint).
+    pub fn rename_company(&mut self, i: usize, new_name: &str) -> Result<(), usize> {
+        let new_name = new_name.trim();
+        if new_name.is_empty() || i >= self.unternehmen.len() {
+            return Ok(());
+        }
+        if let Some(j) = self.find_company(new_name).filter(|&j| j != i) {
+            return Err(j);
+        }
+        let c = &mut self.unternehmen[i];
+        let old = std::mem::replace(&mut c.name, new_name.to_string());
+        let n = normalize_name(new_name);
+        c.aliase.retain(|a| normalize_name(a) != n);
+        if normalize_name(&old) != n && !c.aliase.iter().any(|a| normalize_name(a) == normalize_name(&old)) {
+            c.aliase.push(old);
+        }
+        Ok(())
+    }
+
+    /// Führt Unternehmen `from` in `into` zusammen (Name von `into` bleibt, `from` wird Alias; Zähler addieren sich).
+    pub fn merge_companies(&mut self, from: usize, into: usize) {
+        if from == into || from >= self.unternehmen.len() || into >= self.unternehmen.len() {
+            return;
+        }
+        let c = self.unternehmen.remove(from);
+        let into = if from < into { into - 1 } else { into };
+        absorb(&mut self.unternehmen[into], c, |a, b| a + b);
+    }
+
+    /// Paare, die vermutlich dasselbe Unternehmen sind: ein Name ist der Anfang des anderen
+    /// („Stadtwerke“ / „Stadtwerke Musterstadt“), sehr ähnliche Schreibweise, oder genau diese beiden teilen
+    /// sich eine Kennung. Als „kein Doppel“ markierte Paare fehlen. Häufigere Unternehmen zuerst.
+    pub fn likely_duplicates(&self) -> Vec<(usize, usize)> {
+        let names: Vec<Vec<String>> = self
+            .unternehmen
+            .iter()
+            .map(|c| {
+                std::iter::once(&c.name)
+                    .chain(c.aliase.iter())
+                    .map(|n| normalize_name(n))
+                    .collect()
+            })
+            .collect();
+        let similar = |a: &str, b: &str| {
+            let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+            (short.len() >= 4 && long.starts_with(&format!("{short} ")))
+                || (short.len() >= 6 && strsim::jaro_winkler(a, b) >= 0.93)
+        };
+        let mut out = Vec::new();
+        for i in 0..self.unternehmen.len() {
+            for j in i + 1..self.unternehmen.len() {
+                let (a, b) = (&self.unternehmen[i], &self.unternehmen[j]);
+                if self.is_dismissed(&a.name, &b.name) {
+                    continue;
+                }
+                let by_name = names[i].iter().any(|x| names[j].iter().any(|y| similar(x, y)));
+                let by_id = a.kennungen.iter().any(|(kind, values)| {
+                    values
+                        .iter()
+                        .any(|v| b.has_id(*kind, v) && self.id_owners(*kind, v).len() == 2)
+                });
+                if by_name || by_id {
+                    out.push((i, j));
+                }
+            }
+        }
+        out.sort_by_key(|&(i, j)| std::cmp::Reverse(self.unternehmen[i].anzahl + self.unternehmen[j].anzahl));
+        out
+    }
+
+    /// Der Nutzer sagt: diese beiden sind verschiedene Unternehmen.
+    pub fn dismiss_duplicate(&mut self, a: &str, b: &str) {
+        if !self.is_dismissed(a, b) {
+            self.keine_doppel.push((a.to_string(), b.to_string()));
+        }
+    }
+
+    fn is_dismissed(&self, a: &str, b: &str) -> bool {
+        let (a, b) = (normalize_name(a), normalize_name(b));
+        self.keine_doppel.iter().any(|(x, y)| {
+            let (x, y) = (normalize_name(x), normalize_name(y));
+            (x == a && y == b) || (x == b && y == a)
+        })
+    }
+
     /// Alle bekannten Themen (für die Autovervollständigung).
     pub fn topic_names(&self) -> Vec<String> {
         let mut t: Vec<String> = self.unternehmen.iter().flat_map(|c| c.themen.keys().cloned()).collect();
@@ -507,5 +654,90 @@ mod tests {
         k.learn(&fields("Richtig", "x"), &ids, None, Some("Falsch GmbH"));
         let m = k.match_document(&doc, &ids).unwrap();
         assert_eq!(k.unternehmen[m.company()].name, "Richtig");
+    }
+
+    #[test]
+    fn merge_from_other_device() {
+        let company = |name: &str, alias: &[&str], ust: &str, thema: &str, n: u32| Company {
+            name: name.into(),
+            aliase: alias.iter().map(|a| a.to_string()).collect(),
+            kennungen: BTreeMap::from([(IdKind::UstId, vec![ust.to_string()])]),
+            themen: BTreeMap::from([(thema.to_string(), n)]),
+            rechnungen: 0,
+            anzahl: n,
+        };
+        let mut here = Knowledge {
+            unternehmen: vec![company("NetzWelt", &[], "DE987654321", "Mobilfunk", 3)],
+            ..Knowledge::default()
+        };
+        let there = Knowledge {
+            unternehmen: vec![
+                company("Netzwelt", &["NetzWelt Kommunikation"], "DE111111111", "Mobilfunk", 5),
+                company("Stadtwerke Musterstadt", &[], "DE123456789", "Abschlag", 2),
+            ],
+            ..Knowledge::default()
+        };
+        assert_eq!(here.merge(there.clone()), 1);
+        assert_eq!(here.unternehmen.len(), 2);
+        let n = &here.unternehmen[0];
+        assert_eq!(n.name, "NetzWelt", "eigene Schreibweise bleibt");
+        assert_eq!(n.aliase, ["NetzWelt Kommunikation"]);
+        assert_eq!(n.kennungen[&IdKind::UstId], ["DE987654321", "DE111111111"]);
+        assert_eq!(n.themen["Mobilfunk"], 5);
+        // zweiter Import ändert nichts mehr
+        let before = here.clone();
+        assert_eq!(here.merge(there), 0);
+        assert_eq!(here, before);
+    }
+
+    #[test]
+    fn rename_merge_and_duplicates() {
+        let company = |name: &str, ust: &str, n: u32| Company {
+            name: name.into(),
+            kennungen: BTreeMap::from([(IdKind::UstId, vec![ust.to_string()])]),
+            themen: BTreeMap::from([("Abschlag".to_string(), n)]),
+            anzahl: n,
+            ..Company::default()
+        };
+        let mut k = Knowledge {
+            unternehmen: vec![
+                company("Stadtwerke", "DE1", 3),
+                company("Stadtwerke Musterstadt", "DE2", 10),
+                company("Telekom", "DE3", 4),
+                company("Deutsche Telekom", "DE4", 1),
+                company("Autohaus Becker", "DE5", 2),
+            ],
+            ..Knowledge::default()
+        };
+        // Präfix am Wortende: „Stadtwerke“ und „Telekom“ ja, „Deutsche Telekom“ nur über eine geteilte Kennung
+        assert_eq!(k.likely_duplicates(), vec![(0, 1)]);
+        k.unternehmen[3]
+            .kennungen
+            .get_mut(&IdKind::UstId)
+            .unwrap()
+            .push("DE3".into());
+        assert_eq!(k.likely_duplicates(), vec![(0, 1), (2, 3)]);
+        k.dismiss_duplicate("Deutsche Telekom", "Telekom");
+        assert_eq!(k.likely_duplicates(), vec![(0, 1)]);
+
+        k.merge_companies(0, 1);
+        let s = &k.unternehmen[0];
+        assert_eq!(s.name, "Stadtwerke Musterstadt");
+        assert_eq!(s.aliase, ["Stadtwerke"]);
+        assert_eq!(s.anzahl, 13);
+        assert_eq!(s.themen["Abschlag"], 13);
+        assert_eq!(s.kennungen[&IdKind::UstId], ["DE2", "DE1"]);
+
+        // jetzt: 0 Stadtwerke Musterstadt, 1 Telekom, 2 Deutsche Telekom, 3 Autohaus Becker
+        assert_eq!(k.rename_company(2, "Autohaus Becker"), Err(3));
+        assert_eq!(k.rename_company(2, "Autohaus Becker GmbH & Co. KG"), Err(3));
+        assert_eq!(k.rename_company(2, "Telekom Deutschland"), Ok(()));
+        assert_eq!(k.unternehmen[2].name, "Telekom Deutschland");
+        assert_eq!(k.unternehmen[2].aliase, ["Deutsche Telekom"]);
+        assert_eq!(
+            k.find_company("Deutsche Telekom"),
+            Some(2),
+            "alter Name bleibt als Alias"
+        );
     }
 }

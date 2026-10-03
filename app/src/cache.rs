@@ -46,3 +46,25 @@ pub fn store(key: &str, pages: &[PageText], source: &TextSource) {
         Err(e) => log::warn!("OCR-Cache nicht gespeichert: {e}"),
     }
 }
+
+/// Text der ersten Seite für das Lernen aus einem Ordner: nimmt ein vorhandenes Ergebnis der Erkennung
+/// (`<hash>.json`, zwei Seiten) oder des Lernens (`<hash>-1.json`, eine Seite), sonst wird gelesen und
+/// Texterkennung zwischengespeichert. Ein zweiter Lernlauf über dasselbe Archiv braucht so keine Texterkennung.
+pub fn read_first_page(path: &Path, ocr: Option<af_ocr::Preference>) -> anyhow::Result<Vec<PageText>> {
+    let key = key(path);
+    if let Some(k) = &key
+        && let Some((pages, _)) = load(k).or_else(|| load(&format!("{k}-1")))
+    {
+        return Ok(pages.into_iter().filter(|p| p.page == 1).collect());
+    }
+    match ocr {
+        Some(pref) => {
+            let (pages, source) = af_ocr::read_text(path, 1, pref)?;
+            if let (Some(k), TextSource::Ocr { .. }) = (&key, &source) {
+                store(&format!("{k}-1"), &pages, &source);
+            }
+            Ok(pages)
+        }
+        None => af_pdf::extract_text(path, 1),
+    }
+}

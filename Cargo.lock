@@ -25,6 +25,7 @@ dependencies = [
  "af-core",
  "af-ocr",
  "af-pdf",
+ "anyhow",
  "blake3",
  "chrono",
  "dirs",
@@ -210,6 +211,8 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "objc2-vision",
  "png",
+ "serde",
+ "serde_json",
  "windows",
 ]
 

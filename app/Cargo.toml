@@ -16,6 +16,7 @@ log.workspace = true
 env_logger.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+anyhow.workspace = true
 chrono.workspace = true
 eframe = { version = "0.36", features = ["glow"] }
 rfd = "0.17"

@@ -65,21 +65,40 @@ fn run(args: &[String]) -> anyhow::Result<()> {
             let mut knowledge = af_core::knowledge::Knowledge::load(&path)?;
             let template = Template::parse(DEFAULT_TEMPLATE)?;
             let ocr = flags.contains(&"--ocr").then_some(af_ocr::Preference::Auto);
-            let stats = af_ocr::archive::learn_folder(&paths[0], &template, &mut knowledge, ocr, |p| {
-                eprint!("\r{} / {}", p.done + 1, p.total);
-                true
-            });
+            // Lernstand neben der Wissensdatei: schon gelernte Dateien werden übersprungen
+            let log_path = path.with_file_name("lernstand.json");
+            let mut log = af_ocr::archive::LearnLog::load(&log_path)?;
+            let stats = af_ocr::archive::learn_folder(
+                &paths[0],
+                &template,
+                &mut knowledge,
+                &mut log,
+                af_ocr::archive::direct_reader(ocr),
+                |p| {
+                    eprint!("\r{} / {}", p.done + 1, p.total);
+                    true
+                },
+            );
             eprintln!();
             knowledge.save(&path)?;
+            log.save(&log_path)?;
             println!(
-                "{} PDFs, {} gelernt, {} mit anderem Namensschema übersprungen, {} nicht lesbar → {} Unternehmen in {}",
+                "{} PDFs, {} gelernt, {} schon bekannt, {} ohne Firma im Namen, {} Firma nicht im Brief bestätigt, {} nicht lesbar → {} Unternehmen in {}",
                 stats.files,
                 stats.learned,
+                stats.already,
                 stats.skipped_name,
+                stats.unconfirmed,
                 stats.errors,
                 knowledge.unternehmen.len(),
                 path.display()
             );
+            if stats.unconfirmed > 0 {
+                println!(
+                    "Nicht bestätigt: {} ohne erkannten Text, {} Firma nur im Fließtext, {} ähnlich geschrieben, {} gar nicht gefunden",
+                    stats.miss_no_text, stats.miss_in_body, stats.miss_similar, stats.miss_missing
+                );
+            }
             Ok(())
         }
         Some("suggest") if !paths.is_empty() => {

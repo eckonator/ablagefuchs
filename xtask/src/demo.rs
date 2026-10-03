@@ -546,8 +546,8 @@ struct ArchiveLetter {
 }
 
 /// Fiktives Archiv, wie es nach einiger Zeit mit Ablagefuchs aussehen könnte: Unterordner in mehreren Ebenen,
-/// Dateinamen nach der Standardvorlage in der Schreibweise des Nutzers („NetzWelt“) und eine alte Datei,
-/// die nicht zur Vorlage passt.
+/// Dateinamen nach der Standardvorlage in der Schreibweise des Nutzers („NetzWelt“), ältere Namen ohne `_-_`
+/// und eine alte Datei, aus der sich nichts lernen lässt.
 pub fn write_archive(dir: &Path) -> anyhow::Result<()> {
     const NETZWELT: &str = "NetzWelt Kommunikation GmbH · USt-IdNr. DE987654321 · netzwelt.example";
     const STADTWERKE: &str = "Stadtwerke Musterstadt GmbH · USt-IdNr. DE123456789";
@@ -617,6 +617,45 @@ pub fn write_archive(dir: &Path) -> anyhow::Result<()> {
             subject: "Nebenkostenabrechnung für das Jahr 2024",
             items: &[("Nachzahlung", "88,10 €")],
             footer: "Hausverwaltung Lindner · Bahnhofstraße 22 · 76137 Musterstadt",
+        },
+        // Ältere Ablage ohne `_-_`: Wo die Firma endet, muss der Brief zeigen
+        ArchiveLetter {
+            path: "2024/Auto/2024-03-01_Autohaus_Becker_Inspektion_Rechnung.pdf",
+            company: "Autohaus Becker GmbH",
+            address: &["Industriestraße 9", "76133 Musterstadt"],
+            info: &["Datum: 01.03.2024"],
+            subject: "Rechnung Inspektion",
+            items: &[("Inspektion", "289,00 €")],
+            footer: "Autohaus Becker GmbH · USt-IdNr. DE246813579",
+        },
+        // Briefkopf einer Marke; nur die USt-IdNr. verbindet ihn mit dem Autohaus
+        ArchiveLetter {
+            path: "2024/Auto/2024-10-14_Autohaus_Becker_Reifenwechsel.pdf",
+            company: "Reifen-Service Nord",
+            address: &["Industriestraße 9", "76133 Musterstadt"],
+            info: &["Datum: 14.10.2024"],
+            subject: "Reifenwechsel",
+            items: &[("Räder umstecken", "45,00 €")],
+            footer: "USt-IdNr. DE246813579",
+        },
+        // Weder Briefkopf noch Kennung passen, das Autohaus steht nur im Text (bestätigt durch die Briefe oben)
+        ArchiveLetter {
+            path: "2024/Auto/2024-11-20_Garantie_Autohaus_Becker.pdf",
+            company: "Mobil-Partner Nord",
+            address: &["Werkstattweg 3", "76133 Musterstadt"],
+            info: &["Datum: 20.11.2024"],
+            subject: "Ihre Garantieverlängerung beim Autohaus Becker",
+            items: &[("Garantie 12 Monate", "149,00 €")],
+            footer: "Werkstattweg 3 · 76133 Musterstadt",
+        },
+        ArchiveLetter {
+            path: "2023/2023-12-01_NetzWeltRechnung_Dezember.pdf",
+            company: "NetzWelt Kommunikation GmbH",
+            address: &["Kundenservice: 0800 123 456", "netzwelt.example"],
+            info: &["Rechnung vom 01.12.2023", "Rechnungsnummer: RN-2023-12-044"],
+            subject: "Ihre Rechnung für Mobilfunk",
+            items: &[("Tarif NetzWelt Unlimited M", "25,20 €"), ("Gesamtbetrag", "29,99 €")],
+            footer: NETZWELT,
         },
         ArchiveLetter {
             path: "alt/Scan vom März 2019.pdf",

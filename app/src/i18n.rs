@@ -221,9 +221,6 @@ fn en(de: &str) -> Option<&'static str> {
         }
         "Dokumente" => "Documents",
         "Domain" => "Domain",
-        "Gelernt aus {} von {} Dateien – {} Unternehmen bekannt" => {
-            "Learned from {} of {} files – {} companies known"
-        }
         "Gelernt über {} ({} Dokumente)" => "Learned via {} ({} documents)",
         "Gelernt über den Namen im Briefkopf ({} Dokumente)" => {
             "Learned via the name in the letterhead ({} documents)"
@@ -231,8 +228,8 @@ fn en(de: &str) -> Option<&'static str> {
         "Häufigstes Thema dieses Absenders ({}×)" => "Most frequent topic of this sender ({}×)",
         "Kennungen" => "Identifiers",
         "Lernen starten" => "Start learning",
-        "Liest alle PDFs im Ordner und in allen Unterordnern, deren Name zur Vorlage passt: Dateiname und erste Seite." => {
-            "Reads all PDFs in the folder and all subfolders whose name matches the template: file name and first page."
+        "Liest alle PDFs im Ordner und in allen Unterordnern: Dateiname und erste Seite. Namen nach der Vorlage gelten direkt; bei anderen Namen muss der Brief die Firma bestätigen (Briefkopf, Fußzeile oder bekannte USt-IdNr./IBAN)." => {
+            "Reads all PDFs in the folder and its subfolders: file name and first page. Names following the template count directly; for other names the letter must confirm the company (letterhead, footer or a known VAT ID/IBAN)."
         }
         "Name" => "Name",
         "Noch nichts gelernt." => "Nothing learned yet.",
@@ -342,6 +339,68 @@ fn en(de: &str) -> Option<&'static str> {
         "Zeitraum bis" => "period to",
         "Zeitraum von" => "period from",
         "Zuletzt benutzt" => "Recently used",
+        "Prüfliste: ↵ lernt die Firma, umbenannt wird nichts. Zurück über den Ordner oben." => {
+            "Review list: ↵ learns the company, nothing is renamed. Go back via the folder above."
+        }
+        "Bitte warten, bis die Datei gelesen ist." => "Please wait until the file has been read.",
+        "Gelernt: {}" => "Learned: {}",
+        "Keine nicht gelernten Dateien gefunden." => "No unlearned files found.",
+        "Nicht gelernte Dateien" => "Unlearned files",
+        "Umbenannt: {} → {}" => "Renamed: {} → {}",
+        "Zusammengeführt: {} → {}" => "Merged: {} → {}",
+        "Lernen & weiter" => "Learn & next",
+        "Nur lernen" => "Learn only",
+        "Kein Doppel" => "Not a duplicate",
+        "Mögliche Doppel ({})" => "Possible duplicates ({})",
+        "Name:" => "Name:",
+        "Nicht gelernte Dateien durchgehen ({})" => "Go through unlearned files ({})",
+        "Suchen:" => "Search:",
+        "Umbenennen" => "Rename",
+        "Unternehmen wählen …" => "Choose company …",
+        "Weitere Schreibweisen: {}" => "Other spellings: {}",
+        "Während des Lernens kann nichts bearbeitet werden." => "Nothing can be edited while learning.",
+        "Zusammenführen behält den Namen des Unternehmens mit mehr Dokumenten; der andere wird zur weiteren Schreibweise." => {
+            "Merging keeps the name of the company with more documents; the other one becomes an additional spelling."
+        }
+        "Zusammenführen mit:" => "Merge with:",
+        "Zusammenführen" => "Merge",
+        "„{}“ bearbeiten" => "Edit “{}”",
+        "… und {} weitere" => "… and {} more",
+        "Öffnet die Dateien wie einen Eingangsordner. Du bestätigst die Firma, Ablagefuchs lernt daraus; umbenannt wird nichts." => {
+            "Opens the files like an inbox folder. You confirm the company and Ablagefuchs learns from it; nothing is renamed."
+        }
+        "„{}“ gibt es schon. Zum Vereinen „Zusammenführen mit“ wählen." => {
+            "“{}” already exists. To combine them, use “Merge with”."
+        }
+        "„{}“ wird zu einer Schreibweise von „{}“" => "“{}” becomes a spelling of “{}”",
+        "→ {}" => "→ {}",
+        "Die Datei behält ihren Namen. Ablagefuchs merkt sich Firma, Kennungen und Briefkopf." => {
+            "The file keeps its name. Ablagefuchs remembers the company, identifiers and letterhead."
+        }
+        "{} Dateien neu gelernt ({} schon bekannt) – {} Unternehmen bekannt" => {
+            "{} files newly learned ({} already known) – {} companies known"
+        }
+        "Zuletzt: {} PDFs gefunden, {} neu gelernt, {} schon bekannt, {} ohne Firma im Namen, {} Firma nicht im Brief bestätigt, {} nicht lesbar" => {
+            "Last run: {} PDFs found, {} newly learned, {} already known, {} without a company in the name, {} company not confirmed by the letter, {} not readable"
+        }
+        "Nicht bestätigt: {} ohne erkannten Text, {} Firma nur im Fließtext, {} ähnlich geschrieben (Lesefehler?), {} gar nicht gefunden (Logo, Abkürzung)" => {
+            "Not confirmed: {} without recognized text, {} company only in the body text, {} spelled similarly (misread?), {} not found at all (logo, abbreviation)"
+        }
+        "Auf ein anderes Gerät übertragen" => "Transfer to another device",
+        "Exportieren …" => "Export …",
+        "Importieren …" => "Import …",
+        "Sichert alle Einstellungen und das gelernte Wissen in eine Datei. Beim Import wird das Wissen mit dem vorhandenen zusammengeführt; Grafik und zuletzt geöffnete Ordner bleiben, Ordner werden nur übernommen, wenn es sie auf diesem Gerät gibt." => {
+            "Saves all settings and the learned knowledge to a file. On import, the knowledge is merged with what is already there; graphics and recently opened folders stay, folders are only taken over if they exist on this device."
+        }
+        "Einstellungen und Wissen exportieren" => "Export settings and knowledge",
+        "Einstellungen und Wissen importieren" => "Import settings and knowledge",
+        "Exportiert: Einstellungen und {} Unternehmen" => "Exported: settings and {} companies",
+        "Export fehlgeschlagen: {}" => "Export failed: {}",
+        "Bitte warten, bis das Lernen fertig ist." => "Please wait until learning has finished.",
+        "Importiert: Einstellungen übernommen, {} neue Unternehmen ({} bekannt)" => {
+            "Imported: settings applied, {} new companies ({} known)"
+        }
+        "Import fehlgeschlagen: {}" => "Import failed: {}",
         "Zurzeit aktiv: OpenGL (Ausweichweg nach einem Grafikproblem)." => {
             "Currently active: OpenGL (fallback after a graphics problem)."
         }
