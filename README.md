@@ -12,8 +12,8 @@ written in Rust. Works completely offline: no server, no database, no cloud.
 
 ![Ablagefuchs with a scanned letter: recognized date, company and topic are highlighted in the preview](docs/screenshot-scan.png)
 
-> **Status: first release (0.1).** Recognition rules have been developed on sample letters so far.
-> Feedback with real-world (anonymized) scans is very welcome.
+> **Status: early release (0.2).** Recognition rules have been developed on sample letters and tested on a
+> real archive. Feedback with real-world (anonymized) scans is very welcome. See the [changelog](CHANGELOG.md).
 
 ## Features
 
@@ -22,7 +22,11 @@ written in Rust. Works completely offline: no server, no database, no cloud.
 - **Recognition of date, sender, topic and invoices**, with a confidence score and the source for every
   field ("from the letterhead", "learned via VAT ID" …).
 - **Learns locally** from your existing archive and from your corrections: spellings, identifiers
-  (VAT ID, IBAN, tax number, domain) and typical topics per company.
+  (VAT ID, IBAN, tax number, domain) and typical topics per company. Archive file names don't have to
+  follow the template: the company is confirmed by the letter itself. Re-learning only reads new files.
+- **Manage what was learned:** search, rename and merge companies, with suggestions for likely duplicates.
+  Files that could not be learned can be gone through one by one.
+- **Export and import** settings and knowledge to use Ablagefuchs on several computers.
 - **Configurable file name template** (`{datum}_{unternehmen}_-_{thema}{rechnung?:_Rechnung}`).
 - **Batch mode** for files recognized with high confidence; **undo** for every rename.
 - **Searchable scans:** writes PDF metadata (title, keywords), an invisible OCR text layer and
@@ -79,8 +83,9 @@ overwrites a file; on a name collision it appends `_2`, `_3` ….
 
 - Your documents never leave your computer. Recognition, OCR and learning run locally, without AI and
   without network access.
-- What Ablagefuchs learns is stored in `wissen.json` in its settings folder and can be viewed and
-  deleted under *Settings → Knowledge*.
+- What Ablagefuchs learns is stored in `wissen.json` (and which archive files it has read in
+  `lernstand.json`) in its settings folder and can be viewed, edited and deleted under
+  *Settings → Knowledge*. An export file contains the same data and stays wherever you save it.
 - The only network request is an optional check for new versions on GitHub. Ablagefuchs asks before
   enabling it; it sends nothing about your documents or settings.
 - No telemetry, no account.
