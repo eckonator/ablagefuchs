@@ -9,3 +9,4 @@ Exec=ablagefuchs %f
 Icon=ablagefuchs
 Terminal=false
 Categories=Office;Utility;
+StartupWMClass=ablagefuchs

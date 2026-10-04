@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- **Linux:** the archive now contains `install.sh`, which adds Ablagefuchs with its icon to the application
+  menu (per user, in `~/.local`; `./install.sh --uninstall` removes it). The window now also shows its icon
+  in the dock on Wayland.
+
 ## 0.3.0
 
 - **Recognizes senders by their letterhead image.** Many letters print the company name only as a logo,
