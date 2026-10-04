@@ -12,7 +12,7 @@ written in Rust. Works completely offline: no server, no database, no cloud.
 
 ![Ablagefuchs with a scanned letter: recognized date, company and topic are highlighted in the preview](docs/screenshot-scan.png)
 
-> **Status: early release (0.2).** Recognition rules have been developed on sample letters and tested on a
+> **Status: early release (0.3).** Recognition rules have been developed on sample letters and tested on a
 > real archive. Feedback with real-world (anonymized) scans is very welcome. See the [changelog](CHANGELOG.md).
 
 ## Features
@@ -24,6 +24,7 @@ written in Rust. Works completely offline: no server, no database, no cloud.
 - **Learns locally** from your existing archive and from your corrections: spellings, identifiers
   (VAT ID, IBAN, tax number, domain) and typical topics per company. Archive file names don't have to
   follow the template: the company is confirmed by the letter itself. Re-learning only reads new files.
+- **Recognizes senders by their letterhead image**, also when the company name is printed only as a logo.
 - **Manage what was learned:** search, rename and merge companies, with suggestions for likely duplicates.
   Files that could not be learned can be gone through one by one.
 - **Export and import** settings and knowledge to use Ablagefuchs on several computers.

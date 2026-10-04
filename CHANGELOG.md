@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0
+
+- **Recognizes senders by their letterhead image.** Many letters print the company name only as a logo,
+  which OCR cannot read. Ablagefuchs now stores a small fingerprint of each company's letterhead (a coarse
+  raster, not an image of the letter), corrected for skewed and shifted scans. New scans whose letterhead
+  matches are suggested with that company (to be confirmed), and archive files whose name mentions the
+  company are learned through it. Fingerprints are added automatically for files learned before.
+- **Groups of identical letterheads:** companies that never print their name as text are learned when
+  several letters with the same letterhead carry the same company in their file names. Words from the
+  letters' subjects and known topics are never taken as the company.
+- **Account statements and other lists** no longer hand their many foreign IBANs to the sender: with three or
+  more identifiers in the body text, only letterhead and footer count.
+- A company can be marked as "never suggest as a possible duplicate" (e.g. your bank). Possible duplicates
+  show why they were suggested; a shared IBAN no longer counts (it may be your own account number).
+- Possible duplicates now also include companies with the same letterhead.
+- `ablagefuchs-cli logo <files…>` prints how similar letterheads are (numbers only).
+
 ## 0.2.0
 
 ### Learning from your archive
