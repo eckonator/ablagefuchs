@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::company::strip_legal_form;
 use crate::layout::{Layout, Line};
+use crate::logo::{self, Fingerprint};
 use crate::model::Rect;
 use crate::naming::NameFields;
 
@@ -48,6 +49,12 @@ pub struct Company {
     pub themen: BTreeMap<String, u32>,
     pub rechnungen: u32,
     pub anzahl: u32,
+    /// Fingerabdrücke des Briefkopfs (für Absender, deren Name nur als Bild gedruckt ist)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub logos: Vec<Fingerprint>,
+    /// Nie als mögliches Doppel vorschlagen (z. B. die Bank: Kontoauszüge nennen viele andere Firmen)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub nie_doppel: bool,
 }
 
 impl Company {
@@ -80,6 +87,17 @@ impl Default for Knowledge {
             keine_doppel: Vec::new(),
         }
     }
+}
+
+/// Warum zwei Unternehmen vermutlich dasselbe sind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Why {
+    /// ein Name ist der Anfang des anderen oder sehr ähnlich geschrieben
+    Name,
+    /// genau diese beiden teilen sich eine USt-IdNr. oder Steuernummer
+    Kennung(IdKind),
+    /// gleicher Briefkopf
+    Briefkopf,
 }
 
 /// Treffer im Wissen für ein Dokument.
@@ -151,15 +169,20 @@ pub fn iban_valid(iban: &str) -> bool {
 
 /// Alle Kennungen im Dokument (erste beiden Seiten).
 pub fn find_ids(layout: &Layout) -> Vec<FoundId> {
-    let mut out: Vec<FoundId> = Vec::new();
+    // (Kennung, steht im Fließtext)
+    let mut out: Vec<(FoundId, bool)> = Vec::new();
     let mut push = |kind, value: String, line: &Line, range: std::ops::Range<usize>| {
-        if !out.iter().any(|f| f.kind == kind && f.value == value) {
-            out.push(FoundId {
-                kind,
-                value,
-                page: line.page,
-                rect: line.rect_of(range),
-            });
+        if !out.iter().any(|(f, _)| f.kind == kind && f.value == value) {
+            out.push((
+                FoundId {
+                    kind,
+                    value,
+                    page: line.page,
+                    rect: line.rect_of(range),
+                },
+                // Folgeseiten sind bei Listen voller Buchungen, auch oben und unten
+                line.zone == crate::layout::Zone::Body || line.page > 1,
+            ));
         }
     };
     for line in layout.lines.iter().filter(|l| l.page <= 2) {
@@ -182,8 +205,17 @@ pub fn find_ids(layout: &Layout) -> Vec<FoundId> {
             }
         }
     }
-    out
+    // Listen (Kontoauszug, Sammelrechnung) nennen im Text die Kennungen vieler anderer Firmen: dann zählen nur
+    // Briefkopf und Fußzeile, sonst hingen fremde IBANs am Absender
+    let in_body = out.iter().filter(|(_, body)| *body).count();
+    out.into_iter()
+        .filter(|(_, body)| !body || in_body < LIST_IDS)
+        .map(|(f, _)| f)
+        .collect()
 }
+
+/// Ab so vielen Kennungen im Fließtext gilt ein Dokument als Liste fremder Kennungen.
+const LIST_IDS: usize = 3;
 
 /// Vergleichsform eines Firmennamens: klein, ohne Rechtsform, nur Buchstaben/Ziffern und einzelne Leerzeichen.
 pub fn normalize_name(name: &str) -> String {
@@ -222,6 +254,10 @@ fn absorb(own: &mut Company, c: Company, count: impl Fn(u32, u32) -> u32) {
         let e = own.themen.entry(thema).or_insert(0);
         *e = count(*e, n);
     }
+    for fp in c.logos {
+        logo::add_to(&mut own.logos, fp);
+    }
+    own.nie_doppel |= c.nie_doppel;
     own.rechnungen = count(own.rechnungen, c.rechnungen);
     own.anzahl = count(own.anzahl, c.anzahl);
 }
@@ -243,6 +279,35 @@ impl Knowledge {
         (0..self.unternehmen.len())
             .filter(|&i| self.unternehmen[i].has_id(kind, value))
             .collect()
+    }
+
+    /// Unternehmen über den Fingerabdruck des Briefkopfs: das ähnlichste, wenn es über [`logo::SAME`] liegt
+    /// und deutlich vor dem nächsten Unternehmen. Gibt (Nummer, Ähnlichkeit) zurück.
+    pub fn match_logo(&self, fp: &Fingerprint) -> Option<(usize, f32)> {
+        let mut scores: Vec<(usize, f32)> = self
+            .unternehmen
+            .iter()
+            .enumerate()
+            .filter_map(|(i, c)| {
+                c.logos
+                    .iter()
+                    .map(|f| f.similarity(fp))
+                    .max_by(f32::total_cmp)
+                    .map(|s| (i, s))
+            })
+            .collect();
+        scores.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let &(best, score) = scores.first()?;
+        let second = scores.get(1).map_or(f32::MIN, |s| s.1);
+        (score >= logo::SAME && score - second >= logo::MARGIN).then_some((best, score))
+    }
+
+    /// Briefkopf-Fingerabdruck zu einem Unternehmen (Name oder Alias) nachtragen, ohne etwas mitzuzählen.
+    pub fn add_logo(&mut self, name: &str, fp: Fingerprint) -> bool {
+        match self.find_company(name) {
+            Some(i) => logo::add_to(&mut self.unternehmen[i].logos, fp),
+            None => false,
+        }
     }
 
     /// Unternehmen über eindeutige Kennungen (Mehrheitsentscheid unter den eindeutigen).
@@ -317,6 +382,7 @@ impl Knowledge {
         fields: &NameFields,
         ids: &[FoundId],
         letterhead: Option<&str>,
+        logo: Option<&Fingerprint>,
         replaced: Option<&str>,
     ) -> bool {
         let name = fields.unternehmen.trim();
@@ -352,6 +418,13 @@ impl Knowledge {
                 list.push(id.value.clone());
             }
         }
+        if let Some(fp) = logo {
+            // Briefkopf gehört zum richtigen Unternehmen, nicht (mehr) zum falsch vorgeschlagenen
+            if let Some(r) = replaced {
+                self.unternehmen[r].logos.retain(|f| f.similarity(fp) < logo::SAME);
+            }
+            logo::add_to(&mut self.unternehmen[idx].logos, fp.clone());
+        }
         let c = &mut self.unternehmen[idx];
         if c.name != name && normalize_name(&c.name) == normalize_name(name) {
             // gleiche Firma, neue Schreibweise des Nutzers: die gilt
@@ -379,7 +452,7 @@ impl Knowledge {
     fn recognition_fingerprint(&self) -> String {
         self.unternehmen
             .iter()
-            .map(|c| format!("{}|{:?}|{:?}", c.name, c.aliase, c.kennungen))
+            .map(|c| format!("{}|{:?}|{:?}|{}", c.name, c.aliase, c.kennungen, c.logos.len()))
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -467,7 +540,7 @@ impl Knowledge {
     /// Paare, die vermutlich dasselbe Unternehmen sind: ein Name ist der Anfang des anderen
     /// („Stadtwerke“ / „Stadtwerke Musterstadt“), sehr ähnliche Schreibweise, oder genau diese beiden teilen
     /// sich eine Kennung. Als „kein Doppel“ markierte Paare fehlen. Häufigere Unternehmen zuerst.
-    pub fn likely_duplicates(&self) -> Vec<(usize, usize)> {
+    pub fn likely_duplicates(&self) -> Vec<(usize, usize, Why)> {
         let names: Vec<Vec<String>> = self
             .unternehmen
             .iter()
@@ -487,21 +560,39 @@ impl Knowledge {
         for i in 0..self.unternehmen.len() {
             for j in i + 1..self.unternehmen.len() {
                 let (a, b) = (&self.unternehmen[i], &self.unternehmen[j]);
-                if self.is_dismissed(&a.name, &b.name) {
+                if a.nie_doppel || b.nie_doppel || self.is_dismissed(&a.name, &b.name) {
                     continue;
                 }
                 let by_name = names[i].iter().any(|x| names[j].iter().any(|y| similar(x, y)));
-                let by_id = a.kennungen.iter().any(|(kind, values)| {
-                    values
-                        .iter()
-                        .any(|v| b.has_id(*kind, v) && self.id_owners(*kind, v).len() == 2)
-                });
-                if by_name || by_id {
-                    out.push((i, j));
+                // Nur Kennungen, die eine Firma wirklich ausweisen: Eine IBAN kann die eigene des Nutzers sein
+                // (Kontoauszug und Lastschrift-Brief), eine Domain bloß erwähnt
+                let by_id = a
+                    .kennungen
+                    .iter()
+                    .filter(|(kind, _)| matches!(kind, IdKind::UstId | IdKind::Steuernummer))
+                    .find_map(|(kind, values)| {
+                        values
+                            .iter()
+                            .any(|v| b.has_id(*kind, v) && self.id_owners(*kind, v).len() == 2)
+                            .then_some(*kind)
+                    });
+                let by_logo = a
+                    .logos
+                    .iter()
+                    .any(|x| b.logos.iter().any(|y| x.similarity(y) >= logo::SAME));
+                let why = if by_name {
+                    Some(Why::Name)
+                } else if let Some(kind) = by_id {
+                    Some(Why::Kennung(kind))
+                } else {
+                    by_logo.then_some(Why::Briefkopf)
+                };
+                if let Some(why) = why {
+                    out.push((i, j, why));
                 }
             }
         }
-        out.sort_by_key(|&(i, j)| std::cmp::Reverse(self.unternehmen[i].anzahl + self.unternehmen[j].anzahl));
+        out.sort_by_key(|&(i, j, _)| std::cmp::Reverse(self.unternehmen[i].anzahl + self.unternehmen[j].anzahl));
         out
     }
 
@@ -602,11 +693,13 @@ mod tests {
             &ids,
             Some("NetzWelt Kommunikation"),
             None,
+            None,
         );
         k.learn(
             &fields("NetzWelt", "Mobilfunk Oktober"),
             &ids,
             Some("NetzWelt Kommunikation"),
+            None,
             None,
         );
         assert_eq!(k.unternehmen.len(), 1);
@@ -640,8 +733,8 @@ mod tests {
         let mut k = Knowledge::default();
         let own = layout(&["Abbuchung von IBAN DE89 3704 0044 0532 0130 00"]);
         let ids = find_ids(&own);
-        k.learn(&fields("Stadtwerke", "Strom"), &ids, None, None);
-        k.learn(&fields("NetzWelt", "Mobilfunk"), &ids, None, None);
+        k.learn(&fields("Stadtwerke", "Strom"), &ids, None, None, None);
+        k.learn(&fields("NetzWelt", "Mobilfunk"), &ids, None, None, None);
         assert!(k.match_document(&own, &ids).is_none());
     }
 
@@ -650,8 +743,8 @@ mod tests {
         let mut k = Knowledge::default();
         let doc = layout(&["USt-IdNr. DE123456789"]);
         let ids = find_ids(&doc);
-        k.learn(&fields("Falsch GmbH", "x"), &ids, None, None);
-        k.learn(&fields("Richtig", "x"), &ids, None, Some("Falsch GmbH"));
+        k.learn(&fields("Falsch GmbH", "x"), &ids, None, None, None);
+        k.learn(&fields("Richtig", "x"), &ids, None, None, Some("Falsch GmbH"));
         let m = k.match_document(&doc, &ids).unwrap();
         assert_eq!(k.unternehmen[m.company()].name, "Richtig");
     }
@@ -663,8 +756,8 @@ mod tests {
             aliase: alias.iter().map(|a| a.to_string()).collect(),
             kennungen: BTreeMap::from([(IdKind::UstId, vec![ust.to_string()])]),
             themen: BTreeMap::from([(thema.to_string(), n)]),
-            rechnungen: 0,
             anzahl: n,
+            ..Company::default()
         };
         let mut here = Knowledge {
             unternehmen: vec![company("NetzWelt", &[], "DE987654321", "Mobilfunk", 3)],
@@ -690,6 +783,26 @@ mod tests {
         assert_eq!(here, before);
     }
 
+    fn pairs(k: &Knowledge) -> Vec<(usize, usize)> {
+        k.likely_duplicates().iter().map(|d| (d.0, d.1)).collect()
+    }
+
+    #[test]
+    fn own_iban_is_no_duplicate_evidence() {
+        // Die eigene IBAN des Nutzers steht im Kontoauszug der Bank und im Lastschrift-Brief einer Firma
+        let company = |name: &str| Company {
+            name: name.into(),
+            kennungen: BTreeMap::from([(IdKind::Iban, vec!["DE89370400440532013000".to_string()])]),
+            anzahl: 1,
+            ..Company::default()
+        };
+        let k = Knowledge {
+            unternehmen: vec![company("Sparkasse Musterstadt"), company("Fitnessclub Nord")],
+            ..Knowledge::default()
+        };
+        assert!(k.likely_duplicates().is_empty());
+    }
+
     #[test]
     fn rename_merge_and_duplicates() {
         let company = |name: &str, ust: &str, n: u32| Company {
@@ -710,15 +823,16 @@ mod tests {
             ..Knowledge::default()
         };
         // Präfix am Wortende: „Stadtwerke“ und „Telekom“ ja, „Deutsche Telekom“ nur über eine geteilte Kennung
-        assert_eq!(k.likely_duplicates(), vec![(0, 1)]);
+        assert_eq!(pairs(&k), vec![(0, 1)]);
         k.unternehmen[3]
             .kennungen
             .get_mut(&IdKind::UstId)
             .unwrap()
             .push("DE3".into());
-        assert_eq!(k.likely_duplicates(), vec![(0, 1), (2, 3)]);
+        assert_eq!(pairs(&k), vec![(0, 1), (2, 3)]);
+        assert_eq!(k.likely_duplicates()[1].2, Why::Kennung(IdKind::UstId));
         k.dismiss_duplicate("Deutsche Telekom", "Telekom");
-        assert_eq!(k.likely_duplicates(), vec![(0, 1)]);
+        assert_eq!(pairs(&k), vec![(0, 1)]);
 
         k.merge_companies(0, 1);
         let s = &k.unternehmen[0];
@@ -739,5 +853,69 @@ mod tests {
             Some(2),
             "alter Name bleibt als Alias"
         );
+    }
+
+    /// Fingerabdruck aus einem Muster: `bits` wählt, welche Rasterzellen dunkel sind.
+    fn logo_print(bits: impl Fn(usize) -> bool) -> Fingerprint {
+        Fingerprint {
+            raster: (0..logo::COLS * logo::ROWS)
+                .map(|i| if bits(i) { 'f' } else { '0' })
+                .collect(),
+            seitenverhaeltnis: 4.0,
+        }
+    }
+
+    #[test]
+    fn recognized_by_logo_only_when_clear() {
+        let stripes = logo_print(|i| (i / logo::COLS).is_multiple_of(3));
+        let checker = logo_print(|i| (i % logo::COLS / 4 + i / logo::COLS / 3).is_multiple_of(2));
+        let mut k = Knowledge::default();
+        k.learn(&fields("Bildlogo AG", "Brief"), &[], None, Some(&stripes), None);
+        k.learn(&fields("Andere", "Brief"), &[], None, Some(&checker), None);
+        assert_eq!(k.match_logo(&stripes).map(|m| m.0), Some(0));
+        assert_eq!(k.match_logo(&checker).map(|m| m.0), Some(1));
+        // gleiches Logo bei zwei Unternehmen: unklar, kein Treffer – und ein Doppel-Vorschlag
+        k.add_logo("Andere", stripes.clone());
+        assert_eq!(k.match_logo(&stripes), None);
+        assert!(k.likely_duplicates().contains(&(0, 1, Why::Briefkopf)));
+        // Korrektur: der Nutzer sagt, dieses Logo gehört zu „Bildlogo AG“ → beim falschen entfernt
+        k.learn(
+            &fields("Bildlogo AG", "Brief"),
+            &[],
+            None,
+            Some(&stripes),
+            Some("Andere"),
+        );
+        assert_eq!(k.match_logo(&stripes).map(|m| m.0), Some(0));
+        // fast gleiche Varianten werden nicht doppelt gespeichert
+        assert_eq!(k.unternehmen[0].logos.len(), 1);
+    }
+
+    #[test]
+    fn statements_do_not_hand_out_foreign_ids() {
+        // Brief: IBAN im Text („bitte überweisen Sie auf …“) zählt
+        let letter = layout(&[
+            "Stadtwerke Musterstadt",
+            "",
+            "",
+            "",
+            "",
+            "Bitte überweisen Sie auf DE89 3704 0044 0532 0130 00",
+        ]);
+        assert_eq!(find_ids(&letter).len(), 1);
+        // Kontoauszug: viele fremde IBANs in den Buchungen, die eigene Kennung in der Kopfzeile
+        let statement = layout(&[
+            "Sparkasse Musterstadt USt-IdNr. DE111222333",
+            "",
+            "",
+            "",
+            "",
+            "Lastschrift DE89 3704 0044 0532 0130 00",
+            "Gutschrift DE02 1203 0000 0000 2020 51",
+            "Lastschrift DE77 1001 0010 0123 4567 89",
+        ]);
+        let ids = find_ids(&statement);
+        assert_eq!(ids.len(), 1, "{ids:?}");
+        assert_eq!(ids[0].kind, IdKind::UstId);
     }
 }

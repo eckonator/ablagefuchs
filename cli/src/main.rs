@@ -20,6 +20,8 @@ Aufruf:
       Wissen aus einem benannten Archiv lernen (rekursiv, alle Unterordner; nur lokal)
   ablagefuchs-cli text [--json] <datei.pdf>
       erkannter Text als Zeilen mit Zone und Schrift (Fehlersuche)
+  ablagefuchs-cli logo <datei.pdf> …
+      Ähnlichkeit der Briefköpfe als Matrix (nur Zahlen, zum Abstimmen des Logo-Vergleichs)
   ablagefuchs-cli pages <datei.pdf>
   ablagefuchs-cli --version";
 
@@ -74,6 +76,7 @@ fn run(args: &[String]) -> anyhow::Result<()> {
                 &mut knowledge,
                 &mut log,
                 af_ocr::archive::direct_reader(ocr),
+                |p| af_ocr::letterhead_fingerprint(p).map(|h| h.fingerprint),
                 |p| {
                     eprint!("\r{} / {}", p.done + 1, p.total);
                     true
@@ -93,11 +96,43 @@ fn run(args: &[String]) -> anyhow::Result<()> {
                 knowledge.unternehmen.len(),
                 path.display()
             );
+            if stats.by_logo + stats.by_group + stats.logos_added > 0 {
+                println!(
+                    "Briefkopf-Bild: {} über bekannte Logos gelernt, {} über Gruppen gleicher Briefköpfe, {} Fingerabdrücke nachgetragen",
+                    stats.by_logo, stats.by_group, stats.logos_added
+                );
+            }
             if stats.unconfirmed > 0 {
                 println!(
                     "Nicht bestätigt: {} ohne erkannten Text, {} Firma nur im Fließtext, {} ähnlich geschrieben, {} gar nicht gefunden",
                     stats.miss_no_text, stats.miss_in_body, stats.miss_similar, stats.miss_missing
                 );
+            }
+            Ok(())
+        }
+        Some("logo") if !paths.is_empty() => {
+            // Nummern statt Dateinamen: die Ausgabe lässt sich weitergeben, ohne Inhalte zu verraten
+            let prints: Vec<_> = paths
+                .iter()
+                .map(|p| af_ocr::letterhead_fingerprint(p).map(|h| h.fingerprint))
+                .collect();
+            for (i, p) in paths.iter().enumerate() {
+                eprintln!("{:>3}: {}", i + 1, p.display());
+            }
+            print!("    ");
+            for j in 0..prints.len() {
+                print!("{:>6}", j + 1);
+            }
+            println!();
+            for (i, a) in prints.iter().enumerate() {
+                print!("{:>3} ", i + 1);
+                for b in &prints {
+                    match (a, b) {
+                        (Some(a), Some(b)) => print!("{:>6.2}", a.similarity(b)),
+                        _ => print!("{:>6}", "-"),
+                    }
+                }
+                println!();
             }
             Ok(())
         }
@@ -158,10 +193,13 @@ fn suggest(
             af_core::TextSource::Ocr { mean_confidence, .. } => Some(*mean_confidence),
             af_core::TextSource::Embedded => None,
         };
+        // Briefkopf-Bild nur, wenn es Wissen gibt, mit dem es verglichen werden kann
+        let logo = knowledge.and(af_ocr::letterhead_fingerprint(&file));
         let ctx = Context {
             reference_date: modified_date(&file),
             ocr_quality,
             knowledge,
+            logo: logo.as_ref(),
         };
         let suggestion = af_core::analyze(&pages, &ctx);
         let name = template.file_name(&suggestion.fields(), &opts);
@@ -243,6 +281,10 @@ fn describe(source: &Source) -> String {
             dokumente,
         } => format!("gelernt über den Namen ({dokumente} Dokumente)"),
         Source::KnownTopic { anzahl } => format!("häufigstes Thema dieses Absenders ({anzahl}×)"),
+        Source::Logo {
+            aehnlichkeit,
+            dokumente,
+        } => format!("am Bild des Briefkopfs erkannt ({aehnlichkeit} % ähnlich, {dokumente} Dokumente)"),
     }
 }
 

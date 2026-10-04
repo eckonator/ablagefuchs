@@ -38,18 +38,20 @@ impl LearnJob {
             .spawn(move || {
                 ::log::info!("Lerne aus {}", root.display());
                 let read = |path: &std::path::Path| crate::cache::read_first_page(path, ocr);
-                let stats = af_ocr::archive::learn_folder(&root, &template, &mut knowledge, &mut log, read, |pr| {
-                    if let Ok(mut g) = p.lock() {
-                        let name = pr
-                            .current
-                            .file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_default();
-                        *g = (pr.done, pr.total, name);
-                    }
-                    ctx.request_repaint();
-                    !c.load(Ordering::Relaxed)
-                });
+                let logo = |path: &std::path::Path| af_ocr::letterhead_fingerprint(path).map(|h| h.fingerprint);
+                let stats =
+                    af_ocr::archive::learn_folder(&root, &template, &mut knowledge, &mut log, read, logo, |pr| {
+                        if let Ok(mut g) = p.lock() {
+                            let name = pr
+                                .current
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_default();
+                            *g = (pr.done, pr.total, name);
+                        }
+                        ctx.request_repaint();
+                        !c.load(Ordering::Relaxed)
+                    });
                 ::log::info!(
                     "Lernen fertig: {} gelernt, {} schon bekannt, {} unbestätigt",
                     stats.learned,

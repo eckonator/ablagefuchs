@@ -185,6 +185,22 @@ pub fn read_text(
     ))
 }
 
+/// Breite, in der die erste Seite für den Briefkopf-Fingerabdruck gerendert wird
+const LOGO_WIDTH: u32 = 1000;
+
+/// Fingerabdruck des Briefkopfs der ersten Seite (siehe [`af_core::logo`]); `None` ohne erkennbaren Kopf.
+pub fn letterhead_fingerprint(path: &std::path::Path) -> Option<af_core::logo::Header> {
+    let img = af_pdf::render_page(path, 0, LOGO_WIDTH)
+        .map_err(|e| log::warn!("{}: Briefkopf nicht darstellbar: {e:#}", path.display()))
+        .ok()?;
+    af_core::logo::Fingerprint::from_rgba(
+        &img.rgba,
+        img.width,
+        img.height,
+        (img.page_width_pt, img.page_height_pt),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

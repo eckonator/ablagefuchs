@@ -461,6 +461,13 @@ pub fn describe(source: &Source) -> String {
             dokumente,
         } => trf("Gelernt über den Namen im Briefkopf ({} Dokumente)", &[dokumente]),
         Source::KnownTopic { anzahl } => trf("Häufigstes Thema dieses Absenders ({}×)", &[anzahl]),
+        Source::Logo {
+            aehnlichkeit,
+            dokumente,
+        } => trf(
+            "Am Bild des Briefkopfs erkannt ({} % ähnlich, {} Dokumente) – bitte prüfen",
+            &[aehnlichkeit, dokumente],
+        ),
         Source::InvoiceSignals(s) => {
             let list = s.iter().map(|w| format!("„{w}“")).collect::<Vec<_>>().join(", ");
             trf("Gefunden: {}", &[&list])

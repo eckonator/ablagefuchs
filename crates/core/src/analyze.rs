@@ -22,6 +22,8 @@ pub struct Context<'a> {
     pub ocr_quality: Option<f32>,
     /// Gelerntes Wissen (Schreibweisen, Kennungen, Themen), falls vorhanden
     pub knowledge: Option<&'a Knowledge>,
+    /// Fingerabdruck des Briefkopfs der ersten Seite (Logo als Bild), falls ermittelt
+    pub logo: Option<&'a crate::logo::Header>,
 }
 
 /// Woher ein Vorschlag stammt. Die Oberfläche übersetzt das in einen Satz.
@@ -38,6 +40,11 @@ pub enum Source {
     /// aus dem gelernten Wissen: über eine Kennung (USt-IdNr., IBAN …) oder, ohne Kennung, über den Namen
     Knowledge {
         kennung: Option<IdKind>,
+        dokumente: u32,
+    },
+    /// aus dem gelernten Wissen über das Bild des Briefkopfs (Ähnlichkeit in Prozent)
+    Logo {
+        aehnlichkeit: u8,
         dokumente: u32,
     },
     /// kein Betreff gefunden: häufigstes Thema dieses Absenders
@@ -82,6 +89,8 @@ pub struct LearnInfo {
     pub ids: Vec<FoundId>,
     /// Name aus dem Briefkopf (ohne Wissen), wird zum Alias
     pub letterhead: Option<String>,
+    /// Fingerabdruck des Briefkopfs
+    pub logo: Option<crate::logo::Fingerprint>,
 }
 
 impl Suggestion {
@@ -152,6 +161,11 @@ pub fn analyze(pages: &[PageText], ctx: &Context<'_>) -> Suggestion {
     let known = ctx
         .knowledge
         .and_then(|k| k.match_document(&layout, &ids).map(|m| (k, m)));
+    // Ohne Kennung und Namen: vielleicht ist der Absender am Bild des Briefkopfs erkennbar
+    let by_logo = match (known.is_none(), ctx.knowledge, ctx.logo) {
+        (true, Some(k), Some(h)) => k.match_logo(&h.fingerprint).map(|(i, score)| (k, i, score, h.rect)),
+        _ => None,
+    };
     let mut unternehmen = match letterhead.clone() {
         Some(c) => Field {
             value: c.name,
@@ -194,6 +208,21 @@ pub fn analyze(pages: &[PageText], ctx: &Context<'_>) -> Suggestion {
                 dokumente: c.anzahl,
             },
             highlights,
+        };
+    }
+
+    if let Some((k, i, score, rect)) = by_logo {
+        let c = &k.unternehmen[i];
+        company_info = Some(c);
+        // Ein Bildvergleich ist unsicherer als eine Kennung: Vorschlag zum Bestätigen
+        unternehmen = Field {
+            value: c.name.clone(),
+            confidence: 85,
+            source: Source::Logo {
+                aehnlichkeit: (score * 100.0).round() as u8,
+                dokumente: c.anzahl,
+            },
+            highlights: vec![Highlight { page: 1, rect }],
         };
     }
 
@@ -249,6 +278,7 @@ pub fn analyze(pages: &[PageText], ctx: &Context<'_>) -> Suggestion {
     let learn = LearnInfo {
         ids,
         letterhead: letterhead.filter(|c| c.confidence >= 60).map(|c| c.name),
+        logo: ctx.logo.map(|h| h.fingerprint.clone()),
     };
 
     let mut s = Suggestion {

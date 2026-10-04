@@ -186,6 +186,8 @@ pub enum Action {
     },
     /// Zwei Unternehmen sind kein Doppel
     DismissDuplicate(String, String),
+    /// Unternehmen nie als Doppel vorschlagen (z. B. Bank)
+    SetNeverDuplicate(usize, bool),
     /// Nicht bestätigte Dateien des letzten Lernlaufs durchgehen
     ReviewUnlearned,
     /// Einstellungen und Wissen in eine Datei sichern
@@ -871,6 +873,7 @@ impl App {
             &fields,
             &info.ids,
             info.letterhead.as_deref(),
+            info.logo.as_ref(),
             replaced.as_deref(),
         );
         // Nur wenn sich die Zuordnung ändern kann, andere Dateien neu erkennen; gespeichert wird immer
@@ -978,6 +981,7 @@ impl App {
                 &item.0,
                 &item.1.ids,
                 item.1.letterhead.as_deref(),
+                item.1.logo.as_ref(),
                 item.2.as_deref(),
             );
         }
@@ -1196,6 +1200,12 @@ impl App {
                 self.save_learn_log();
                 self.knowledge_changed();
                 self.show_info(ctx, trf("Zusammengeführt: {} → {}", &[&names[0], &target]), false);
+            }
+            Action::SetNeverDuplicate(i, never) => {
+                if let Some(c) = std::sync::Arc::make_mut(&mut self.knowledge).unternehmen.get_mut(i) {
+                    c.nie_doppel = never;
+                    self.knowledge_changed();
+                }
             }
             Action::DismissDuplicate(a, b) => {
                 std::sync::Arc::make_mut(&mut self.knowledge).dismiss_duplicate(&a, &b);
