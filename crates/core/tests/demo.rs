@@ -20,6 +20,7 @@ fn demo_documents_get_expected_names() {
         ocr_quality: None,
         knowledge: None,
         logo: None,
+        created: None,
     };
     for line in EXPECTED.lines().chain(EXPECTED_OCR.lines()) {
         let (pdf, expected) = line.split_once('\t').unwrap();
@@ -55,6 +56,7 @@ fn uncertain_cases_are_flagged() {
         ocr_quality: None,
         knowledge: None,
         logo: None,
+        created: None,
     };
     let load = |n: u8| -> Vec<PageText> {
         let f = format!(
@@ -88,6 +90,7 @@ fn info_block_is_never_the_subject() {
         ocr_quality: None,
         knowledge: None,
         logo: None,
+        created: None,
     };
     let fixture = format!(
         "{}/tests/fixtures/demo/scan_20261002_0008.json",

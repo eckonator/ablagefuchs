@@ -222,6 +222,7 @@ version = "0.3.2"
 dependencies = [
  "af-core",
  "anyhow",
+ "chrono",
  "log",
  "lopdf",
  "pdfium-render",

@@ -200,6 +200,7 @@ fn suggest(
             ocr_quality,
             knowledge,
             logo: logo.as_ref(),
+            created: af_pdf::created_date(&file),
         };
         let suggestion = af_core::analyze(&pages, &ctx);
         let name = template.file_name(&suggestion.fields(), &opts);
@@ -281,6 +282,8 @@ fn describe(source: &Source) -> String {
             dokumente,
         } => format!("gelernt über den Namen ({dokumente} Dokumente)"),
         Source::KnownTopic { anzahl } => format!("häufigstes Thema dieses Absenders ({anzahl}×)"),
+        Source::Created { aus_pdf: true } => "kein Datum im Dokument: Erstellungsdatum der PDF".into(),
+        Source::Created { aus_pdf: false } => "kein Datum im Dokument: Datum der Datei".into(),
         Source::Logo {
             aehnlichkeit,
             dokumente,

@@ -36,7 +36,27 @@ pub fn show(
     ui.separator();
     let ctx = ui.ctx().clone();
     egui::Panel::bottom("dateiliste-fuss").show(ui, |ui| {
-        ui.add_space(4.0);
+        ui.add_space(6.0);
+        // Beim Bearbeiten gemerkt, dass das Dokument weg kann (in der Prüfliste nie: das sind Archivdateien)
+        let deletable = !review
+            && current
+                .and_then(|i| entries.get(i))
+                .is_some_and(|e| e.is_open() && !e.gone);
+        let shortcut = if cfg!(target_os = "macos") {
+            "⌘⌫"
+        } else {
+            "Strg+Entf"
+        };
+        let resp = ui
+            .add_enabled(
+                deletable,
+                egui::Button::new(tr("🗑 Datei löschen")).min_size(egui::vec2(ui.available_width(), 0.0)),
+            )
+            .on_hover_text(format!("{} ({shortcut})", tr("Aktuelle Datei in den Papierkorb legen")));
+        if resp.clicked() {
+            actions.push(Action::TrashCurrent);
+        }
+        ui.add_space(6.0);
         // Umbrechen statt abschneiden, wenn die Spalte schmal ist
         ui.horizontal_wrapped(|ui| {
             let text = if review {

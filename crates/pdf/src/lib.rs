@@ -31,6 +31,31 @@ pub fn page_count(path: &Path) -> anyhow::Result<usize> {
     Ok(usize::try_from(doc.pages().len()).unwrap_or(0))
 }
 
+/// Erstellungsdatum: `CreationDate` aus den PDF-Metadaten, sonst das Änderungsdatum der Datei
+/// (bei einem frischen Scan der Scantag).
+pub fn created_date(path: &Path) -> Option<af_core::Created> {
+    let from_pdf = pdfium()
+        .ok()
+        .and_then(|p| p.load_pdf_from_file(path, None).ok())
+        .and_then(|doc| {
+            doc.metadata()
+                .get(PdfDocumentMetadataTagType::CreationDate)
+                .and_then(|t| af_core::dates::parse_pdf_date(t.value()))
+        });
+    if let Some(date) = from_pdf {
+        return Some(af_core::Created { date, from_pdf: true });
+    }
+    let secs = std::fs::metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let date = chrono::DateTime::from_timestamp(i64::try_from(secs).ok()?, 0)?.date_naive();
+    Some(af_core::Created { date, from_pdf: false })
+}
+
 /// Orte, an denen nach der pdfium-Bibliothek gesucht wird, in dieser Reihenfolge:
 /// `AF_PDFIUM` (Datei oder Ordner), neben dem Programm, `../Frameworks` im macOS-App-Bundle,
 /// `vendor/pdfium/<plattform>` im Quellbaum (von `cargo xtask fetch-pdfium`).

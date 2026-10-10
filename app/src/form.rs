@@ -461,6 +461,10 @@ pub fn describe(source: &Source) -> String {
             dokumente,
         } => trf("Gelernt über den Namen im Briefkopf ({} Dokumente)", &[dokumente]),
         Source::KnownTopic { anzahl } => trf("Häufigstes Thema dieses Absenders ({}×)", &[anzahl]),
+        Source::Created { aus_pdf: true } => {
+            tr("Kein Datum im Dokument – Erstellungsdatum der PDF, bitte prüfen").into()
+        }
+        Source::Created { aus_pdf: false } => tr("Kein Datum im Dokument – Datum der Datei, bitte prüfen").into(),
         Source::Logo {
             aehnlichkeit,
             dokumente,

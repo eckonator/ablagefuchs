@@ -18,5 +18,5 @@ mod model;
 pub mod naming;
 pub mod topic;
 
-pub use analyze::{Context, Field, Highlight, LearnInfo, Source, Suggestion, analyze};
+pub use analyze::{Context, Created, Field, Highlight, LearnInfo, Source, Suggestion, analyze};
 pub use model::{PageText, Rect, TextSource, Word};

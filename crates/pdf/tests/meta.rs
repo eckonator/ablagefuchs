@@ -93,6 +93,10 @@ fn writes_metadata_and_invisible_text() {
 
     // Die unsichtbare Textebene muss pdfium wiederfinden – an der richtigen Stelle
     if af_pdf::pdfium().is_ok() {
+        // Das Erstellungsdatum liest pdfium aus den Metadaten zurück
+        let created = af_pdf::created_date(&file).unwrap();
+        assert!(created.from_pdf);
+        assert_eq!(created.date, chrono::NaiveDate::from_ymd_opt(2026, 9, 15).unwrap());
         let pages = af_pdf::extract_text(&file, 1).unwrap();
         let w = pages[0]
             .words

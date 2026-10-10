@@ -198,7 +198,7 @@ pub enum Action {
     ImportBackup,
     /// Thema aus den bekannten Themen übernehmen
     SetTopic(String),
-    /// Aktuelle Datei in den Papierkorb (doppelt gescannt)
+    /// Aktuelle Datei in den Papierkorb (doppelt gescannt oder nicht mehr gebraucht)
     TrashCurrent,
 }
 
@@ -1305,7 +1305,10 @@ impl App {
             }
             Action::TrashCurrent => {
                 if let Some(i) = self.current
+                    && !self.review
                     && let Some(e) = self.entries.get_mut(i)
+                    && e.is_open()
+                    && !e.gone
                 {
                     match trash::delete(&e.path) {
                         Ok(()) => {
@@ -1405,6 +1408,16 @@ impl App {
         // ⌘Z ohne Fokus in einem Textfeld: letzte Umbenennung zurücknehmen
         if ctx.memory(|m| m.focused().is_none()) && ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::Z))) {
             actions.push(Action::Undo);
+        }
+        // ⌘⌫ (Windows/Linux: Strg+Entf) ohne Fokus in einem Textfeld: aktuelle Datei in den Papierkorb
+        let delete = if cfg!(target_os = "macos") {
+            Key::Backspace
+        } else {
+            Key::Delete
+        };
+        if !self.review && ctx.memory(|m| m.focused().is_none()) && ctx.input_mut(|i| i.consume_shortcut(&cmd(delete)))
+        {
+            actions.push(Action::TrashCurrent);
         }
     }
 

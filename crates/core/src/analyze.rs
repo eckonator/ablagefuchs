@@ -24,6 +24,17 @@ pub struct Context<'a> {
     pub knowledge: Option<&'a Knowledge>,
     /// Fingerabdruck des Briefkopfs der ersten Seite (Logo als Bild), falls ermittelt
     pub logo: Option<&'a crate::logo::Header>,
+    /// Erstellungsdatum der Datei; ersetzt das Datum, wenn im Dokument keines steht
+    pub created: Option<Created>,
+}
+
+/// Erstellungsdatum einer Datei: aus den PDF-Metadaten oder, ersatzweise, das Änderungsdatum.
+/// Wer gleich nach dem Eingang scannt, liegt damit nah am Dokumentdatum.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Created {
+    pub date: NaiveDate,
+    /// `true`: aus den PDF-Metadaten (`CreationDate`), `false`: Datum der Datei
+    pub from_pdf: bool,
 }
 
 /// Woher ein Vorschlag stammt. Die Oberfläche übersetzt das in einen Satz.
@@ -50,6 +61,10 @@ pub enum Source {
     /// kein Betreff gefunden: häufigstes Thema dieses Absenders
     KnownTopic {
         anzahl: u32,
+    },
+    /// kein Datum im Dokument: Erstellungsdatum der PDF bzw. der Datei
+    Created {
+        aus_pdf: bool,
     },
 }
 
@@ -145,7 +160,16 @@ pub fn analyze(pages: &[PageText], ctx: &Context<'_>) -> Suggestion {
                 rect: best.rect,
             }],
         },
-        None => empty(None),
+        // Kein Datum im Dokument: das Erstellungsdatum ist ein Anhaltspunkt, aber zum Prüfen
+        None => match ctx.created.filter(|c| plausible_created(c.date, ctx.reference_date)) {
+            Some(c) => Field {
+                value: Some(c.date),
+                confidence: CREATED_CONFIDENCE,
+                source: Source::Created { aus_pdf: c.from_pdf },
+                highlights: Vec::new(),
+            },
+            None => empty(None),
+        },
     };
 
     let inv = invoice::detect(&layout);
@@ -304,6 +328,23 @@ pub fn analyze(pages: &[PageText], ctx: &Context<'_>) -> Suggestion {
     s
 }
 
+/// Sicherheit eines Datums, das nicht aus dem Dokument stammt: immer unter der Schwelle („Prüfen“).
+const CREATED_CONFIDENCE: u8 = 40;
+
+/// Unsinnige Erstellungsdaten (Uhr des Scanners nicht gestellt, Datum in der Zukunft) verwerfen.
+fn plausible_created(date: NaiveDate, reference: Option<NaiveDate>) -> bool {
+    use chrono::Datelike;
+    let today = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|d| chrono::DateTime::from_timestamp(i64::try_from(d.as_secs()).ok()?, 0))
+        .map(|t| t.date_naive());
+    let Some(latest) = reference.max(today) else {
+        return false;
+    };
+    date.year() >= 1990 && date <= latest + chrono::Days::new(1)
+}
+
 /// Thema ohne Jahreszahlen und Monatsnamen, zum Vergleich mit bekannten Themen.
 fn topic_pattern(topic: &str) -> String {
     topic
@@ -313,4 +354,41 @@ fn topic_pattern(topic: &str) -> String {
         .map(str::to_lowercase)
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn created(y: i32, m: u32, d: u32) -> Option<Created> {
+        Some(Created {
+            date: NaiveDate::from_ymd_opt(y, m, d).unwrap(),
+            from_pdf: true,
+        })
+    }
+
+    #[test]
+    fn created_date_fills_a_missing_date() {
+        let ctx = Context {
+            reference_date: NaiveDate::from_ymd_opt(2026, 10, 2),
+            created: created(2026, 10, 2),
+            ..Context::default()
+        };
+        let s = analyze(&[], &ctx);
+        assert_eq!(s.datum.value, NaiveDate::from_ymd_opt(2026, 10, 2));
+        assert_eq!(s.datum.source, Source::Created { aus_pdf: true });
+        assert!(s.datum.confidence < 50, "muss geprüft werden");
+    }
+
+    #[test]
+    fn implausible_created_date_is_ignored() {
+        for c in [created(1980, 1, 1), created(2099, 1, 1)] {
+            let ctx = Context {
+                reference_date: NaiveDate::from_ymd_opt(2026, 10, 2),
+                created: c,
+                ..Context::default()
+            };
+            assert_eq!(analyze(&[], &ctx).datum.value, None);
+        }
+    }
 }

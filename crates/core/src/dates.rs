@@ -98,6 +98,21 @@ pub fn month_name_de(month: u32) -> &'static str {
     ][(month as usize).clamp(1, 12) - 1]
 }
 
+/// Datum aus einem PDF-Datumsfeld wie `D:20261002143000+02'00'` (nur der Tag, Zeitzone wie angegeben).
+pub fn parse_pdf_date(s: &str) -> Option<NaiveDate> {
+    let s = s.trim();
+    let s = s.strip_prefix("D:").unwrap_or(s);
+    let digits = s.get(..8)?;
+    if !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    NaiveDate::from_ymd_opt(
+        digits[..4].parse().ok()?,
+        digits[4..6].parse().ok()?,
+        digits[6..8].parse().ok()?,
+    )
+}
+
 static NUMERIC: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(\d{1,2})\.\s?(\d{1,2})\.\s?(\d{4}|\d{2})\b").unwrap());
 static ISO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\b(\d{4})-(\d{2})-(\d{2})\b").unwrap());
@@ -260,6 +275,17 @@ pub fn best_document_date(candidates: &[DateCandidate]) -> Option<(&DateCandidat
 mod tests {
     use super::*;
     use crate::model::{PageText, Word};
+
+    #[test]
+    fn pdf_dates() {
+        let d = |y, m, t| NaiveDate::from_ymd_opt(y, m, t);
+        assert_eq!(parse_pdf_date("D:20261002143000+02'00'"), d(2026, 10, 2));
+        assert_eq!(parse_pdf_date("D:20261002"), d(2026, 10, 2));
+        assert_eq!(parse_pdf_date("20250131120000Z"), d(2025, 1, 31));
+        assert_eq!(parse_pdf_date("D:2026"), None);
+        assert_eq!(parse_pdf_date("D:20261302"), None);
+        assert_eq!(parse_pdf_date(""), None);
+    }
 
     fn layout(lines: &[(&str, f32, f32)]) -> Layout {
         let mut words = Vec::new();

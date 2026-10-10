@@ -195,6 +195,8 @@ fn en(de: &str) -> Option<&'static str> {
         "Gleicher Inhalt wie {}" => "Same content as {}",
         "In den Papierkorb gelegt: {}" => "Moved to the trash: {}",
         "In den Papierkorb" => "Move to trash",
+        "🗑 Datei löschen" => "🗑 Delete file",
+        "Aktuelle Datei in den Papierkorb legen" => "Move the current file to the trash",
         "Ins PDF schreiben" => "Write into the PDF",
         "Mit Kopie stellt „Rückgängig“ auch den ursprünglichen Inhalt wieder her, sonst nur den Dateinamen." => {
             "With a copy, “Undo” also restores the original content, otherwise only the file name."
@@ -241,6 +243,12 @@ fn en(de: &str) -> Option<&'static str> {
             "Learned via the name in the letterhead ({} documents)"
         }
         "Häufigstes Thema dieses Absenders ({}×)" => "Most frequent topic of this sender ({}×)",
+        "Kein Datum im Dokument – Erstellungsdatum der PDF, bitte prüfen" => {
+            "No date in the document – PDF creation date, please check"
+        }
+        "Kein Datum im Dokument – Datum der Datei, bitte prüfen" => {
+            "No date in the document – file date, please check"
+        }
         "Kennungen" => "Identifiers",
         "Lernen starten" => "Start learning",
         "Liest alle PDFs im Ordner und in allen Unterordnern: Dateiname und erste Seite. Namen nach der Vorlage gelten direkt; bei anderen Namen muss der Brief die Firma bestätigen (Briefkopf, Fußzeile oder bekannte USt-IdNr./IBAN)." => {

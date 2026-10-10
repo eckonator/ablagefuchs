@@ -148,6 +148,7 @@ fn analyze(
         ocr_quality,
         knowledge: Some(knowledge),
         logo: logo.as_ref(),
+        created: af_pdf::created_date(path),
     };
     let suggestion = af_core::analyze(&text, &ctx);
     let text_key = text_fingerprint(&text);
