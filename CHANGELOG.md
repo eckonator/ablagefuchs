@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.2
+
+- **Update from inside the app.** When a new version is out, **Update now** in the bar downloads and installs
+  it and restarts Ablagefuchs (not while learning). On macOS the new app is only accepted if it is signed with
+  the same certificate as the installed one; from this version on, Mac builds are signed with the project's own
+  certificate. On Windows the files of the zip are replaced in their folder; on Linux this works when installed
+  with `install.sh`. Otherwise the bar links to the download page as before.
+- **Check for updates now** in the settings.
+
 ## 0.3.1
 
 - **Linux:** the archive now contains `install.sh`, which adds Ablagefuchs with its icon to the application

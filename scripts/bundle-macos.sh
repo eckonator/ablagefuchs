@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Baut „Ablagefuchs.app“ für macOS nach dist/, mit pdfium in Contents/Frameworks.
 # Aufruf: scripts/bundle-macos.sh   (AF_SKIP_BUILD=1 überspringt das Bauen, z. B. für das Universal-Binary der CI)
+# AF_SIGN_IDENTITY / AF_SIGN_KEYCHAIN: Zertifikat zum Signieren (Standard: ad-hoc), siehe scripts/signing-keychain.sh
+# Liegt ein Ordner licenses/ vor (CI), kommen die Lizenztexte nach Contents/Resources.
 # pdfium vorher holen: cargo xtask fetch-pdfium mac-arm64 mac-x64 (beide → Universal-Bibliothek)
 set -euo pipefail
 
@@ -54,6 +56,18 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc-Signatur (inklusive pdfium), damit Apple-Silicon-Macs die App ohne Entwicklerkonto starten
-codesign --force --deep --sign - "$APP" >/dev/null
+if [ -d licenses ]; then
+  cp licenses/* "$APP/Contents/Resources/"
+fi
+
+# Mit dem eigenen Zertifikat des Projekts signiert, wenn es eins gibt (scripts/signing-keychain.sh):
+# Dann nimmt das Update per Knopf nur Versionen mit demselben Zertifikat an. Sonst ad-hoc, damit
+# Apple-Silicon-Macs die App überhaupt starten. Erst pdfium, dann die App.
+SIGN=(--force --sign "${AF_SIGN_IDENTITY:--}")
+if [ -n "${AF_SIGN_KEYCHAIN:-}" ]; then
+  SIGN+=(--keychain "$AF_SIGN_KEYCHAIN")
+fi
+codesign "${SIGN[@]}" "$APP/Contents/Frameworks/libpdfium.dylib" >/dev/null
+codesign "${SIGN[@]}" --identifier de.eckonator.ablagefuchs "$APP" >/dev/null
+codesign --verify --deep --strict "$APP"
 echo "Fertig: $APP"

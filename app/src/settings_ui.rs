@@ -291,6 +291,17 @@ fn general(ui: &mut egui::Ui, s: &mut Settings, actions: &mut Vec<Action>, chang
         ui,
         tr("Gesendet wird nur die Frage nach der neuesten Version, keine Daten über Dokumente oder Ordner."),
     );
+    if ui.button(tr("Jetzt nach Updates suchen")).clicked() {
+        actions.push(Action::CheckUpdateNow);
+    }
+    if crate::self_update::asset_suffix().is_some() {
+        hint(
+            ui,
+            tr(
+                "Eine neue Version installiert sich per Knopf selbst; die App startet danach neu. Auf dem Mac nur, wenn sie mit demselben Zertifikat signiert ist.",
+            ),
+        );
+    }
 
     heading(ui, tr("Grafik"));
     let auto = if cfg!(windows) {

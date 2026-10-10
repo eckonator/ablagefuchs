@@ -142,6 +142,8 @@ impl Filter {
 
 /// Was die Oberfläche auslösen kann.
 pub enum Action {
+    /// Sofort bei GitHub nach einer neuen Version fragen (Einstellungen).
+    CheckUpdateNow,
     Select(usize),
     Accept,
     Skip,
@@ -263,7 +265,12 @@ pub struct App {
     /// Korrekturen, die während des Lernens aus einem Ordner anfallen (werden danach nachgetragen)
     pending_corrections: Vec<(NameFields, af_core::LearnInfo, Option<String>)>,
     pub last_learn: Option<af_ocr::archive::LearnStats>,
-    update_rx: Option<std::sync::mpsc::Receiver<Option<crate::update::NewVersion>>>,
+    update_rx: Option<std::sync::mpsc::Receiver<Result<Option<crate::update::NewVersion>, ()>>>,
+    /// Prüfung von Hand angestoßen (Einstellungen): dann auch „nichts Neues“ melden.
+    update_manual: bool,
+    /// Läuft das Update per Knopf, kommt hierüber der Fortschritt.
+    self_update: Option<std::sync::mpsc::Receiver<crate::self_update::Progress>>,
+    update_progress: Option<crate::self_update::Progress>,
     /// Gefundene neue Version (Hinweisleiste), bis der Nutzer sie wegklickt
     new_version: Option<crate::update::NewVersion>,
     /// Hinweis „nach Updates suchen?“ beim ersten Start
@@ -314,6 +321,9 @@ impl App {
             pending_corrections: Vec::new(),
             last_learn: None,
             update_rx: None,
+            update_manual: false,
+            self_update: None,
+            update_progress: None,
             new_version: None,
             ask_update: false,
             icon: None,
@@ -335,6 +345,16 @@ impl App {
             Some(true) if persist => app.update_rx = Some(crate::update::check_in_background(cc.egui_ctx.clone())),
             _ if dev_update => app.update_rx = Some(crate::update::check_in_background(cc.egui_ctx.clone())),
             _ => {}
+        }
+        if std::env::args().any(|a| a == crate::self_update::AFTER_UPDATE_FLAG) {
+            app.show_info(
+                &cc.egui_ctx,
+                trf(
+                    "Ablagefuchs wurde auf Version {} aktualisiert.",
+                    &[&env!("CARGO_PKG_VERSION")],
+                ),
+                false,
+            );
         }
         if let Ok(img) = eframe::icon_data::from_png_bytes(include_bytes!("../../assets/icon-256.png")) {
             let image = egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.rgba);
@@ -1244,6 +1264,12 @@ impl App {
                     }
                 }
             }
+            Action::CheckUpdateNow => {
+                if self.update_rx.is_none() && self.self_update.is_none() {
+                    self.update_rx = Some(crate::update::check_in_background(ctx.clone()));
+                    self.update_manual = true;
+                }
+            }
             Action::ImportBackup => {
                 if self.learning.is_some() {
                     self.show_error(tr("Bitte warten, bis das Lernen fertig ist.").to_string());
@@ -1517,13 +1543,42 @@ impl App {
         (clean(companies), clean(topics))
     }
 
-    /// Hinweisleiste „neue Version“ und die einmalige Frage, ob nach Updates gesucht werden darf.
+    /// Hinweisleiste „neue Version“ samt Update per Knopf und die einmalige Frage, ob nach Updates
+    /// gesucht werden darf.
     fn update_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        use crate::self_update::Progress;
         if let Some(rx) = &self.update_rx
             && let Ok(result) = rx.try_recv()
         {
-            self.new_version = result;
             self.update_rx = None;
+            let manual = std::mem::take(&mut self.update_manual);
+            match result {
+                Ok(Some(v)) => {
+                    self.new_version = Some(v);
+                    self.update_progress = None;
+                }
+                Ok(None) if manual => self.show_info(
+                    ctx,
+                    trf("Ablagefuchs {} ist die neueste Version.", &[&env!("CARGO_PKG_VERSION")]),
+                    false,
+                ),
+                Err(()) if manual => {
+                    self.show_error(tr("GitHub ist nicht erreichbar, bitte später noch einmal versuchen.").to_string());
+                }
+                _ => {}
+            }
+        }
+        if let Some(rx) = &self.self_update {
+            while let Ok(p) = rx.try_recv() {
+                if p == Progress::Restart {
+                    // Einstellungen sind schon gespeichert; die neue Version startet nach dem Schließen
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                self.update_progress = Some(p);
+            }
+            if matches!(self.update_progress, Some(Progress::Restart | Progress::Failed(_))) {
+                self.self_update = None;
+            }
         }
         if self.ask_update {
             egui::Panel::top("update-frage").show(ui, |ui| {
@@ -1551,30 +1606,69 @@ impl App {
             });
         }
         let mut close = false;
+        let mut install = None;
+        let busy = self.learning.is_some();
         if let Some(v) = &self.new_version {
             egui::Panel::top("update-hinweis").show(ui, |ui| {
                 ui.add_space(4.0);
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.add_space(6.0);
-                    ui.label(
-                        RichText::new(trf(
-                            "Ablagefuchs {} ist verfügbar (installiert: {}).",
-                            &[&v.version, &env!("CARGO_PKG_VERSION")],
-                        ))
-                        .strong(),
-                    );
-                    if ui.button(tr("Download-Seite öffnen")).clicked() {
-                        ctx.open_url(egui::OpenUrl::new_tab(&v.url));
-                    }
-                    if ui.button(tr("Später")).clicked() {
-                        close = true;
+                    match &self.update_progress {
+                        Some(Progress::Downloading) => {
+                            ui.spinner();
+                            ui.label(RichText::new(trf("Lade Ablagefuchs {} …", &[&v.version])).strong());
+                        }
+                        Some(Progress::Installing | Progress::Restart) => {
+                            ui.spinner();
+                            ui.label(
+                                RichText::new(trf(
+                                    "Installiere Ablagefuchs {} – die App startet gleich neu …",
+                                    &[&v.version],
+                                ))
+                                .strong(),
+                            );
+                        }
+                        progress => {
+                            ui.label(
+                                RichText::new(trf(
+                                    "Ablagefuchs {} ist verfügbar (installiert: {}).",
+                                    &[&v.version, &env!("CARGO_PKG_VERSION")],
+                                ))
+                                .strong(),
+                            );
+                            let failed = matches!(progress, Some(Progress::Failed(_)));
+                            if let Some(asset) = &v.asset
+                                && !failed
+                            {
+                                let button = ui
+                                    .add_enabled(!busy, egui::Button::new(tr("Jetzt aktualisieren")))
+                                    .on_disabled_hover_text(tr("Bitte warten, bis das Lernen fertig ist."));
+                                if button.clicked() {
+                                    install = Some(asset.clone());
+                                }
+                            }
+                            if ui.button(tr("Download-Seite öffnen")).clicked() {
+                                ctx.open_url(egui::OpenUrl::new_tab(&v.url));
+                            }
+                            if ui.button(tr("Später")).clicked() {
+                                close = true;
+                            }
+                            if let Some(Progress::Failed(e)) = progress {
+                                ui.label(RichText::new(trf("Update fehlgeschlagen: {}", &[e])).color(theme::bad(ctx)));
+                            }
+                        }
                     }
                 });
                 ui.add_space(4.0);
             });
         }
+        if let Some(url) = install {
+            self.update_progress = Some(Progress::Downloading);
+            self.self_update = Some(crate::self_update::start(url, ctx.clone()));
+        }
         if close {
             self.new_version = None;
+            self.update_progress = None;
         }
     }
 

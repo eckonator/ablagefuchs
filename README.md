@@ -60,6 +60,12 @@ avoids this step.
 with its icon to the application menu (per user; `./install.sh --uninstall` removes it). For scans without a text layer
 install Tesseract with German language data, e.g. `sudo apt install tesseract-ocr tesseract-ocr-deu`.
 
+**Updates:** with the update check switched on (asked on first start, also in the settings), Ablagefuchs
+shows a bar when a new version is out. **Update now** downloads and installs it and restarts the app. On
+macOS the new app is only accepted if it is signed with the same certificate as the installed one (builds
+are signed with the project's own certificate); on Windows the files are replaced in the folder of
+`Ablagefuchs.exe`; on Linux this works when installed with `./install.sh`.
+
 ## Usage
 
 1. Choose your inbox folder (where the scanner stores its PDFs).

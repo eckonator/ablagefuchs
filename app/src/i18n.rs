@@ -158,6 +158,21 @@ fn en(de: &str) -> Option<&'static str> {
             "Ablagefuchs only asks GitHub for the latest version – without any data about your documents."
         }
         "Download-Seite öffnen" => "Open download page",
+        "Ablagefuchs wurde auf Version {} aktualisiert." => "Ablagefuchs was updated to version {}.",
+        "Ablagefuchs {} ist die neueste Version." => "Ablagefuchs {} is the latest version.",
+        "GitHub ist nicht erreichbar, bitte später noch einmal versuchen." => {
+            "GitHub is not reachable, please try again later."
+        }
+        "Lade Ablagefuchs {} …" => "Downloading Ablagefuchs {} …",
+        "Installiere Ablagefuchs {} – die App startet gleich neu …" => {
+            "Installing Ablagefuchs {} – the app restarts in a moment …"
+        }
+        "Update fehlgeschlagen: {}" => "Update failed: {}",
+        "Jetzt aktualisieren" => "Update now",
+        "Jetzt nach Updates suchen" => "Check for updates now",
+        "Eine neue Version installiert sich per Knopf selbst; die App startet danach neu. Auf dem Mac nur, wenn sie mit demselben Zertifikat signiert ist." => {
+            "A new version installs itself at the push of a button; the app restarts afterwards. On the Mac only if it is signed with the same certificate."
+        }
         "Einzige Ausnahme, nur wenn eingeschaltet: Beim Start fragt Ablagefuchs bei GitHub nach der neuesten Version. Dabei sieht GitHub wie bei jedem Webseitenaufruf deine IP-Adresse." => {
             "Only exception, if enabled: at startup Ablagefuchs asks GitHub for the latest version. As with any website visit, GitHub sees your IP address."
         }

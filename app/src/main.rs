@@ -14,6 +14,7 @@ mod form;
 mod i18n;
 mod learning;
 mod preview;
+mod self_update;
 mod settings;
 mod settings_ui;
 mod tags;
@@ -35,6 +36,7 @@ fn main() -> eframe::Result {
     let dev = DevTools::from_env();
     let isolated = dev.isolated();
     diagnose::init(!isolated);
+    self_update::clean_up();
     let mut settings = Settings::load();
     if let Some(l) = &dev.lang {
         settings.language = if l == "en" { LangSetting::En } else { LangSetting::De };
