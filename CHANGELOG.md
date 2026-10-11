@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3
+
+- **Creation date as a fallback.** If a document contains no date, Ablagefuchs suggests the PDF's creation
+  date (or, without one, the file date). If you scan right when mail arrives, that is close to the letter's
+  date. The suggestion is marked for review and never taken over automatically.
+- **Delete file** button below the file list (⌘⌫, Ctrl+Del on Windows/Linux): moves the current document
+  to the trash when you notice while editing that you no longer need it.
+
 ## 0.3.2
 
 - **Update from inside the app.** When a new version is out, **Update now** in the bar downloads and installs
