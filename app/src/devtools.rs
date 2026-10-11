@@ -8,7 +8,7 @@
 //! - `AF_FILE=3` wählt die dritte Datei
 //! - `AF_WISSEN=/pfad/wissen.json` Wissensdatei für Entwicklerläufe (sonst ohne Wissen); `AF_LERNORDNER=…` Lernordner
 //! - `AF_KEYS=enter,enter,cmd+z,alt+r,cmd+down` drückt nacheinander diese Tasten (Ablauf ohne Maus testen);
-//!   dazu `text:Abc`, `move:x:y`, `press:x:y`, `release:x:y` (Maus in Punkt, für Klicks und Ziehen), `scroll:-300`
+//!   dazu `text:Abc`, `move:x:y`, `click:x:y`, `press:x:y`, `release:x:y` (Maus in Punkt, Klick bzw. Ziehen), `scroll:-300`
 //! - Bei diesen Schaltern wird nichts gespeichert.
 
 use std::io::Write;
@@ -96,6 +96,20 @@ impl DevTools {
                 }
                 return;
             }
+        }
+        // `click:x:y`: Drücken und Loslassen im selben Bild (zwischen zwei Schritten läge sonst zu viel Zeit)
+        if let Some(pos) = spec.strip_prefix("click:").and_then(pointer) {
+            log::info!("AF_KEYS: {spec}");
+            raw.events.push(Event::PointerMoved(pos));
+            for pressed in [true, false] {
+                raw.events.push(Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                });
+            }
+            return;
         }
         // `scroll:dy`: Mausrad an der aktuellen Zeigerposition (negativ = nach unten blättern)
         if let Some(dy) = spec.strip_prefix("scroll:").and_then(|d| d.parse::<f32>().ok()) {

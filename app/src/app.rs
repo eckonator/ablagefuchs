@@ -390,9 +390,11 @@ impl App {
         let dir = if app.dev.demo {
             Some(DevTools::demo_dir())
         } else {
-            start_dir
-                .or_else(|| app.settings.recent_inboxes.first().cloned())
-                .filter(|d| d.is_dir())
+            // Entwickler- und Testläufe öffnen nie von selbst den zuletzt benutzten (echten) Eingang
+            let recent = (!app.dev.isolated())
+                .then(|| app.settings.recent_inboxes.first().cloned())
+                .flatten();
+            start_dir.or(recent).filter(|d| d.is_dir())
         };
         if let Some(dir) = dir {
             app.open_inbox(dir);
@@ -1567,6 +1569,11 @@ impl App {
             let manual = std::mem::take(&mut self.update_manual);
             match result {
                 Ok(Some(v)) => {
+                    // Von Hand gesucht (in den Einstellungen): Fenster schließen, damit die Leiste zu sehen ist
+                    if manual {
+                        self.settings_ui.open = false;
+                        self.show_info(ctx, trf("Ablagefuchs {} ist verfügbar.", &[&v.version]), false);
+                    }
                     self.new_version = Some(v);
                     self.update_progress = None;
                 }
@@ -1622,58 +1629,64 @@ impl App {
         let mut install = None;
         let busy = self.learning.is_some();
         if let Some(v) = &self.new_version {
-            egui::Panel::top("update-hinweis").show(ui, |ui| {
-                ui.add_space(4.0);
-                ui.horizontal_wrapped(|ui| {
-                    ui.add_space(6.0);
-                    match &self.update_progress {
-                        Some(Progress::Downloading) => {
-                            ui.spinner();
-                            ui.label(RichText::new(trf("Lade Ablagefuchs {} …", &[&v.version])).strong());
-                        }
-                        Some(Progress::Installing | Progress::Restart) => {
-                            ui.spinner();
-                            ui.label(
-                                RichText::new(trf(
-                                    "Installiere Ablagefuchs {} – die App startet gleich neu …",
-                                    &[&v.version],
-                                ))
-                                .strong(),
-                            );
-                        }
-                        progress => {
-                            ui.label(
-                                RichText::new(trf(
-                                    "Ablagefuchs {} ist verfügbar (installiert: {}).",
-                                    &[&v.version, &env!("CARGO_PKG_VERSION")],
-                                ))
-                                .strong(),
-                            );
-                            let failed = matches!(progress, Some(Progress::Failed(_)));
-                            if let Some(asset) = &v.asset
-                                && !failed
-                            {
-                                let button = ui
-                                    .add_enabled(!busy, egui::Button::new(tr("Jetzt aktualisieren")))
-                                    .on_disabled_hover_text(tr("Bitte warten, bis das Lernen fertig ist."));
-                                if button.clicked() {
-                                    install = Some(asset.clone());
+            // Farbig hinterlegt, damit der Hinweis unter der Werkzeugleiste nicht übersehen wird
+            let fill = theme::accent(ctx).gamma_multiply(0.25);
+            egui::Panel::top("update-hinweis")
+                .frame(egui::Frame::side_top_panel(&ctx.global_style()).fill(fill))
+                .show(ui, |ui| {
+                    ui.add_space(4.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.add_space(6.0);
+                        match &self.update_progress {
+                            Some(Progress::Downloading) => {
+                                ui.spinner();
+                                ui.label(RichText::new(trf("Lade Ablagefuchs {} …", &[&v.version])).strong());
+                            }
+                            Some(Progress::Installing | Progress::Restart) => {
+                                ui.spinner();
+                                ui.label(
+                                    RichText::new(trf(
+                                        "Installiere Ablagefuchs {} – die App startet gleich neu …",
+                                        &[&v.version],
+                                    ))
+                                    .strong(),
+                                );
+                            }
+                            progress => {
+                                ui.label(
+                                    RichText::new(trf(
+                                        "Ablagefuchs {} ist verfügbar (installiert: {}).",
+                                        &[&v.version, &env!("CARGO_PKG_VERSION")],
+                                    ))
+                                    .strong(),
+                                );
+                                let failed = matches!(progress, Some(Progress::Failed(_)));
+                                if let Some(asset) = &v.asset
+                                    && !failed
+                                {
+                                    let button = ui
+                                        .add_enabled(!busy, egui::Button::new(tr("Jetzt aktualisieren")))
+                                        .on_disabled_hover_text(tr("Bitte warten, bis das Lernen fertig ist."));
+                                    if button.clicked() {
+                                        install = Some(asset.clone());
+                                    }
+                                }
+                                if ui.button(tr("Download-Seite öffnen")).clicked() {
+                                    ctx.open_url(egui::OpenUrl::new_tab(&v.url));
+                                }
+                                if ui.button(tr("Später")).clicked() {
+                                    close = true;
+                                }
+                                if let Some(Progress::Failed(e)) = progress {
+                                    ui.label(
+                                        RichText::new(trf("Update fehlgeschlagen: {}", &[e])).color(theme::bad(ctx)),
+                                    );
                                 }
                             }
-                            if ui.button(tr("Download-Seite öffnen")).clicked() {
-                                ctx.open_url(egui::OpenUrl::new_tab(&v.url));
-                            }
-                            if ui.button(tr("Später")).clicked() {
-                                close = true;
-                            }
-                            if let Some(Progress::Failed(e)) = progress {
-                                ui.label(RichText::new(trf("Update fehlgeschlagen: {}", &[e])).color(theme::bad(ctx)));
-                            }
                         }
-                    }
+                    });
+                    ui.add_space(4.0);
                 });
-                ui.add_space(4.0);
-            });
         }
         if let Some(url) = install {
             self.update_progress = Some(Progress::Downloading);

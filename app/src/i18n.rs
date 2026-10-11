@@ -195,6 +195,7 @@ fn en(de: &str) -> Option<&'static str> {
         "Gleicher Inhalt wie {}" => "Same content as {}",
         "In den Papierkorb gelegt: {}" => "Moved to the trash: {}",
         "In den Papierkorb" => "Move to trash",
+        "Ablagefuchs {} ist verfügbar." => "Ablagefuchs {} is available.",
         "🗑 Datei löschen" => "🗑 Delete file",
         "Aktuelle Datei in den Papierkorb legen" => "Move the current file to the trash",
         "Ins PDF schreiben" => "Write into the PDF",

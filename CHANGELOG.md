@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.4
+
+- **Update notice is easier to see.** The bar announcing a new version is now highlighted. Searching via
+  **Check for updates now** in the settings closes the settings and shows the bar (before, it stayed hidden
+  behind the settings window and the button seemed to do nothing).
+
 ## 0.3.3
 
 - **Creation date as a fallback.** If a document contains no date, Ablagefuchs suggests the PDF's creation
