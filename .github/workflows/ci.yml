@@ -39,11 +39,13 @@ jobs:
         env:
           AF_REQUIRE_PDFIUM: "1"
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Demo-PDFs erzeugen und mit pdfium öffnen
+      - name: Demo-PDFs erzeugen und erkennen (Vergleich mit xtask/demo-expected.tsv)
         shell: bash
         run: |
           cargo xtask demo-pdfs
           cargo run --quiet -p ablagefuchs-cli -- pages demo/Eingang/scan_20261002_0004.pdf | grep -qx 4
+          cargo run --quiet -p ablagefuchs-cli -- suggest --names demo/Eingang | tr -d "\r" > suggest.tsv
+          diff -u xtask/demo-expected.tsv suggest.tsv
 
   deny:
     runs-on: ubuntu-latest

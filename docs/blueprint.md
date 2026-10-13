@@ -537,6 +537,25 @@ ablagefuchs-cli undo [--last N]              # aus dem Journal zurücknehmen
 ablagefuchs-cli text scan.pdf                # erkannter Text mit Zonen (Fehlersuche)
 ```
 
+### 11.1 Anbindung an lokale KI-Assistenten (Idee vom 2026-10-13)
+
+Ziel: Ein lokaler Assistent soll den Eingangsordner mit Ablagefuchs abarbeiten können, z. B. so:
+„Benenne alle sicheren Scans um und zeig mir die unsicheren.“
+
+| Stufe | Wie | Stand |
+|---|---|---|
+| 1. CLI mit JSON | Ein Assistent ruft `ablagefuchs-cli suggest --json <ordner>` auf und bekommt je Datei Vorschlag, Sicherheit, Herkunft und Datumskandidaten. Später `rename --dry-run`, `rename`, `undo`. | `suggest --json` gibt es seit M1 |
+| 2. MCP-Server | `ablagefuchs-cli mcp` spricht das Model Context Protocol über stdin/stdout. Einrichten: im jeweiligen Assistenten als MCP-Server mit dem Befehl `ablagefuchs-cli mcp` eintragen. Werkzeuge: `list_inbox`, `suggest`, `read_text`, `rename` (Felder übergeben, Vorlage wird angewendet), `undo`, `learn`. | geplant (M8, auf Wunsch früher) |
+
+**Leitplanken:**
+- Die gleichen Sicherheitsregeln wie in der App:
+  - `rename` schreibt ins Journal und lässt sich rückgängig machen.
+  - Kein Überschreiben, Kollisionen bekommen `_2`.
+  - Nur Dateien im angegebenen Eingangsordner.
+- Kein Netzwerk: Der MCP-Server läuft lokal als Kindprozess des Assistenten.
+- Dokumentinhalte gehen nur an den Assistenten, wenn der Nutzer ihn dafür einsetzt. Das wird in der README erklärt.
+- Die Antworten nutzen dieselben Strukturen wie `--json` (`Suggestion`, `Source` …). App, CLI und MCP bleiben so deckungsgleich.
+
 ---
 
 ## 12. Testen und Qualität
@@ -623,7 +642,7 @@ Jeder Meilenstein endet mit grünen Tests, sauberem Clippy und – ab M2 – ein
 | **M5** | Wissen | `wissen.json`, Lernen aus Archiv + Korrekturen, Kennungen, Sicherheitswerte, Filter „Prüfen“, Stapelmodus, Seite „Gelerntes Wissen“ | Mit eingelesenem Archiv ≥ 90 % der Testdateien ohne Korrektur |
 | **M6** | Metadaten | Info + XMP, Finder-Tags, OCR-Textebene, Originale sichern, Duplikaterkennung | Spotlight findet eine Datei über Stichwort und Volltext |
 | **M7** | Release 0.1.0 | Icon, Übersetzungen vollständig prüfen, Bundle/DMG/Install-Skript, Release-Workflow, README mit Screenshots, Markenrecherche erledigt | Download aus GitHub läuft auf einem frischen Mac, Windows-PC und Linux |
-| **M8** | Ausbau | Ollama-Anbindung, Verschieben ins Archiv als eigener Assistent, mehrere Dokumente in einem Scan trennen, leere Seiten entfernen, AppImage, Notarisierung | je nach Wunsch |
+| **M8** | Ausbau | MCP-Server für KI-Assistenten (§11.1), Ollama-Anbindung, Verschieben ins Archiv als eigener Assistent, mehrere Dokumente in einem Scan trennen, leere Seiten entfernen, AppImage, Notarisierung | je nach Wunsch |
 
 ---
 

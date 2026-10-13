@@ -79,3 +79,106 @@ pub fn platform() -> &'static str {
         _ => "linux-x64",
     }
 }
+
+/// Liest den Text der ersten `max_pages` Seiten als Wörter mit Positionen (Ursprung oben links, in Punkt).
+pub fn extract_text(path: &Path, max_pages: usize) -> anyhow::Result<Vec<af_core::PageText>> {
+    let doc = pdfium()?
+        .load_pdf_from_file(path, None)
+        .with_context(|| format!("PDF lässt sich nicht öffnen: {}", path.display()))?;
+    let mut pages = Vec::new();
+    for (i, page) in doc.pages().iter().enumerate().take(max_pages) {
+        let (width, height) = (page.width().value, page.height().value);
+        let text = page
+            .text()
+            .map_err(|e| anyhow!("Text von Seite {} nicht lesbar: {e}", i + 1))?;
+        let mut words = Vec::new();
+        let mut current: Option<WordBuilder> = None;
+        for ch in text.chars().iter() {
+            let Some(c) = ch.unicode_char() else { continue };
+            if c.is_whitespace() || c.is_control() {
+                words.extend(current.take().map(WordBuilder::finish));
+                continue;
+            }
+            let Ok(b) = ch.loose_bounds() else { continue };
+            let rect = af_core::Rect {
+                x: b.left().value,
+                y: height - b.top().value,
+                w: b.width().value,
+                h: b.height().value,
+            };
+            let size = ch.scaled_font_size().value;
+            // Neues Wort, wenn ein Zeichen deutlich abseits liegt (ohne Leerzeichen dazwischen)
+            if let Some(w) = &current {
+                let gap = rect.x - w.rect.right();
+                if gap > size * 0.3 || gap < -size || (rect.center_y() - w.rect.center_y()).abs() > size * 0.5 {
+                    words.extend(current.take().map(WordBuilder::finish));
+                }
+            }
+            let bold = is_bold(&ch);
+            match &mut current {
+                Some(w) => w.push(c, rect, size, bold),
+                None => current = Some(WordBuilder::new(c, rect, size, bold)),
+            }
+        }
+        words.extend(current.take().map(WordBuilder::finish));
+        pages.push(af_core::PageText {
+            page: u16::try_from(i + 1).unwrap_or(u16::MAX),
+            width,
+            height,
+            words,
+        });
+    }
+    Ok(pages)
+}
+
+fn is_bold(ch: &PdfPageTextChar) -> bool {
+    let name = ch.font_name().to_lowercase();
+    ["bold", "black", "heavy", "semibold", "demi"]
+        .iter()
+        .any(|w| name.contains(w))
+        || ch.font_is_bold_reenforced()
+        || matches!(
+            ch.font_weight(),
+            Some(
+                PdfFontWeight::Weight600
+                    | PdfFontWeight::Weight700Bold
+                    | PdfFontWeight::Weight800
+                    | PdfFontWeight::Weight900
+            )
+        )
+}
+
+struct WordBuilder {
+    text: String,
+    rect: af_core::Rect,
+    size: f32,
+    bold_chars: usize,
+    chars: usize,
+}
+
+impl WordBuilder {
+    fn new(c: char, rect: af_core::Rect, size: f32, bold: bool) -> Self {
+        WordBuilder {
+            text: c.to_string(),
+            rect,
+            size,
+            bold_chars: usize::from(bold),
+            chars: 1,
+        }
+    }
+    fn push(&mut self, c: char, rect: af_core::Rect, size: f32, bold: bool) {
+        self.text.push(c);
+        self.rect = self.rect.union(&rect);
+        self.size = self.size.max(size);
+        self.chars += 1;
+        self.bold_chars += usize::from(bold);
+    }
+    fn finish(self) -> af_core::Word {
+        af_core::Word {
+            text: self.text,
+            bbox: self.rect,
+            font_size: self.size,
+            bold: self.bold_chars * 2 > self.chars,
+        }
+    }
+}

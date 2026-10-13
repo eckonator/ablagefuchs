@@ -12,3 +12,6 @@ publish = false
 af-core.workspace = true
 af-pdf.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
