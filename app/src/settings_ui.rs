@@ -76,6 +76,8 @@ pub fn show(ctx: &egui::Context, st: &mut SettingsUi, settings: &mut Settings, e
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .fixed_size(egui::vec2(640.0, 520.0))
+        // Mehr Abstand zum Fensterrand (Wunsch Markus)
+        .frame(egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::symmetric(24, 20)))
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 for (page, label) in [
