@@ -1,0 +1,5 @@
+# Erwartungsdateien und Skripte immer mit Unix-Zeilenenden auschecken, auch unter Windows:
+# die CI vergleicht die Ausgabe der CLI (ohne \r) zeilengenau mit xtask/*.tsv
+*.tsv text eol=lf
+*.sh  text eol=lf
+*.py  text eol=lf
