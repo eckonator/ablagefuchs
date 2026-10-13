@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Metadaten und unsichtbare Textebene schreiben (Bauplan §8), damit Spotlight bzw. die Windows-Suche
+//! Metadaten und unsichtbare Textebene schreiben, damit Spotlight bzw. die Windows-Suche
 //! Dokumente über Titel, Stichwörter und Volltext findet.
 //!
 //! Geschrieben wird in eine Zwischendatei im selben Ordner, die dann die Originaldatei ersetzt.

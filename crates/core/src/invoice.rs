@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Ist das Dokument eine Rechnung? Punktwertung über Schlüsselwörter (Bauplan §5.3).
+//! Ist das Dokument eine Rechnung? Punktwertung über Schlüsselwörter.
 
 use std::sync::LazyLock;
 

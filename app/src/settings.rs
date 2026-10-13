@@ -82,7 +82,7 @@ pub struct Settings {
     pub learn_folder: Option<PathBuf>,
     /// Beim Lernen aus einem Ordner auch Scans ohne Textebene lesen (langsam)
     pub learn_with_ocr: bool,
-    /// Metadaten beim Umbenennen (Bauplan §8)
+    /// Metadaten beim Umbenennen
     pub meta: MetaSettings,
     /// Beim Start bei GitHub nach einer neuen Version fragen; `None` = noch nicht gefragt
     pub update_check: Option<bool>,

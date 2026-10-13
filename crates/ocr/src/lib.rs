@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Texterkennung (OCR) für Seiten ohne Textebene (Bauplan §9). Je System die eingebaute Engine:
+//! Texterkennung (OCR) für Seiten ohne Textebene. Je System die eingebaute Engine:
 //! Apple Vision (macOS), Windows.Media.Ocr (Windows), sonst Tesseract als externes Programm.
 
 pub mod archive;

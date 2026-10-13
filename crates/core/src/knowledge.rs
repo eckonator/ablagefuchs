@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Gelerntes Wissen (Bauplan §5.7): Unternehmen mit Schreibweise des Nutzers, Aliasen, eindeutigen Kennungen
+//! Gelerntes Wissen: Unternehmen mit Schreibweise des Nutzers, Aliasen, eindeutigen Kennungen
 //! (USt-IdNr., IBAN, Steuernummer, Domain) und typischen Themen. Wird nur lokal gespeichert (`wissen.json`)
 //! und ausschließlich aus den Dateien des Nutzers aufgebaut: aus seinen Korrekturen und optional aus einem
 //! Archivordner. Kein Netzwerk, keine KI.

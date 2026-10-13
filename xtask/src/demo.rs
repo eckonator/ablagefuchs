@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Erzeugt Beispiel-Scans fiktiver Firmen (dieselben wie in `docs/mockup.html`).
+//! Erzeugt Beispiel-Scans fiktiver Firmen.
 //! Für Tests, Demos und README-Screenshots; echte Dokumente kommen nie ins Repo.
 //!
 //! Die PDFs haben eine Textebene (Helvetica, WinAnsiEncoding), nur `scan_…_0007.pdf` nicht:

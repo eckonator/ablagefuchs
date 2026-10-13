@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Logdatei, Absturzmeldung und Schutz vor Grafiktreiber-Abstürzen (Bauplan §7.8, aus FadeWerk DJ übernommen).
+//! Logdatei, Absturzmeldung und Schutz vor Grafiktreiber-Abstürzen (aus FadeWerk DJ übernommen).
 //!
 //! Das Release-Programm hat unter Windows kein Konsolenfenster. Alle Meldungen gehen deshalb zusätzlich in
 //! `ablagefuchs.log` im Einstellungsordner, Abstürze mit Ort und Aufrufliste.

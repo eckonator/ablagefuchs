@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Hilfen für die Entwicklung, nur in Debug-Builds aktiv (Bauplan §12):
+//! Hilfen für die Entwicklung, nur in Debug-Builds aktiv:
 //!
 //! - `AF_DEMO=1` öffnet `demo/Eingang` (vorher `cargo xtask demo-pdfs`)
 //! - `AF_SCREENSHOT=/pfad/bild.bmp` speichert nach ~3 s ein Bild des Fensters und beendet die App

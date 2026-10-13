@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Absender erkennen. Bis zum gelernten Wissen (M5) nur über die Gestaltung des Briefkopfs:
-//! größte bzw. fette Schrift oben, Adresszeilen ausgenommen (Bauplan §5.4, Stufe 3).
+//! größte bzw. fette Schrift oben, Adresszeilen ausgenommen.
 
 use std::sync::LazyLock;
 

@@ -6,3 +6,6 @@
 # Von `cargo xtask fetch-pdfium` bzw. `cargo xtask demo-pdfs` erzeugt
 /vendor
 /demo
+# Interne Planungsunterlagen, nur lokal
+/docs/blueprint.md
+/docs/mockup.html

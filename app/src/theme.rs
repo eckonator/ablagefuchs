@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Farben (wie im Mockup). Feldfarben gelten in Hell und Dunkel; Ampelfarben je nach Modus.
+//! Farben. Feldfarben gelten in Hell und Dunkel; Ampelfarben je nach Modus.
 
 use eframe::egui::{Color32, Context, Visuals};
 

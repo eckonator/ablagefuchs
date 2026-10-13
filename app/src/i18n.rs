@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Sprachen der Oberfläche (Bauplan §7.6).
+//! Sprachen der Oberfläche.
 //!
 //! Der deutsche Text im Code ist zugleich der Schlüssel: `tr("Ordner wählen …")` liefert auf Englisch
 //! "Choose folder …". Platzhalter `{}` werden mit `trf` der Reihe nach ersetzt. Fehlt eine Übersetzung,

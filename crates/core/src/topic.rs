@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Thema aus der Betreffzeile ableiten, ersatzweise aus der ersten Rechnungsposition (Bauplan §5.5).
+//! Thema aus der Betreffzeile ableiten, ersatzweise aus der ersten Rechnungsposition.
 
 use std::sync::LazyLock;
 

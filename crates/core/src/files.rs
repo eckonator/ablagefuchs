@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Umbenennen und Verschieben mit Protokoll (Journal) und Rückgängig (Bauplan §10).
+//! Umbenennen und Verschieben mit Protokoll (Journal) und Rückgängig.
 //!
 //! Grundsätze: nie überschreiben (Kollisionen bekommen `_2`, `_3` …), auf anderem Laufwerk erst kopieren
 //! und vergleichen, dann löschen. Jede Änderung steht als eine JSON-Zeile in `journal.jsonl`.

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Datumsangaben finden, ihre Bedeutung bestimmen (Dokumentdatum, Fälligkeit, Zeitraum …)
-//! und das wahrscheinlichste Dokumentdatum auswählen (Bauplan §5.2).
+//! und das wahrscheinlichste Dokumentdatum auswählen.
 
 use std::sync::LazyLock;
 

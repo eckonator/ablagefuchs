@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Dateinamen aus einer Vorlage bauen, Feldwerte bereinigen und Namen zurückparsen (Bauplan §6).
+//! Dateinamen aus einer Vorlage bauen, Feldwerte bereinigen und Namen zurückparsen.
 //!
 //! Vorlage: `{datum}_{unternehmen}_-_{thema}{rechnung?:_Rechnung}`. Platzhalter in `{…}`,
 //! bedingter Text `{feld?:text}` erscheint nur, wenn das Feld gesetzt ist.
@@ -322,7 +322,7 @@ pub fn dedupe(name: &str, exists: impl Fn(&str) -> bool) -> String {
         .expect("irgendwann ist ein Name frei")
 }
 
-/// Bereinigt einen Feldwert für den Dateinamen (Reihenfolge wie im Bauplan §6).
+/// Bereinigt einen Feldwert für den Dateinamen.
 pub fn sanitize(value: &str, opts: &NamingOptions) -> String {
     let mut v: String = value.nfc().filter(|c| !c.is_control()).collect();
     v = v.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], " ");
@@ -424,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn examples_from_blueprint() {
+    fn examples() {
         let cases = [
             (
                 fields("2026-09-28", "Stadtwerke Musterstadt", "Jahresabrechnung Strom", true),
