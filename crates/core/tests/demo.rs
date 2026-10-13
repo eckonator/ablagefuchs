@@ -75,3 +75,27 @@ fn uncertain_cases_are_flagged() {
     };
     assert!(analyze(&load(1), &ocr).datum.confidence < analyze(&load(1), &ctx).datum.confidence);
 }
+
+/// Schriftgrößen aus der Texterkennung schwanken je nach System (Apple Vision auf macOS 14 maß den Infoblock
+/// größer): Auch wenn „Versicherungsschein: …“ und „Rechnungsnummer: …“ größer als der Fließtext wirken,
+/// bleibt die Betreffzeile das Thema.
+#[test]
+fn info_block_is_never_the_subject() {
+    let ctx = Context {
+        reference_date: NaiveDate::from_ymd_opt(2026, 10, 13),
+        ocr_quality: None,
+        knowledge: None,
+    };
+    let fixture = format!(
+        "{}/tests/fixtures/demo/scan_20261002_0008.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let mut pages: Vec<PageText> = serde_json::from_str(&std::fs::read_to_string(fixture).unwrap()).unwrap();
+    let info = ["Versicherungsschein:", "KV-1188-42", "Rechnungsnummer:", "BR-2026-7781"];
+    for w in pages[0].words.iter_mut().filter(|w| info.contains(&w.text.as_str())) {
+        w.font_size = 17.5;
+        w.bbox.h = 17.5;
+    }
+    let s = analyze(&pages, &ctx);
+    assert_eq!(s.thema.value, "Beitragsrechnung 2027");
+}
