@@ -147,6 +147,7 @@ fn en(de: &str) -> Option<&'static str> {
         "Keine Rechnungsmerkmale gefunden" => "No invoice indicators found",
         "Leerzeichen" => "Spaces",
         "Leistungsdatum" => "service date",
+        "Markierungen" => "Highlights",
         "Lizenz" => "License",
         "Lizenziert unter MIT oder Apache-2.0, nach Wahl." => "Licensed under MIT or Apache-2.0, at your option.",
         "Logdatei anzeigen" => "Show log file",

@@ -22,9 +22,31 @@ pub struct FormCtx<'a> {
     /// Namen der übrigen erledigten Dateien (Hinweis auf Namensgleichheit)
     pub taken: &'a [String],
     pub can_undo: bool,
+    /// Vorschläge für die Autovervollständigung
+    pub companies: &'a [String],
+    pub topics: &'a [String],
 }
 
-pub fn show(ui: &mut egui::Ui, e: &mut Entry, c: &FormCtx<'_>, focus: Option<FieldFocus>, actions: &mut Vec<Action>) {
+/// Höchstens so viele Einträge in der Vorschlagsliste.
+const MAX_COMPLETIONS: usize = 6;
+/// Merkt sich, ob in einer Vorschlagsliste gerade ein Eintrag gewählt ist (dann gehört ↵ der Liste).
+const COMPLETION_ACTIVE: &str = "vervollstaendigung-aktiv";
+
+pub fn completion_active(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(egui::Id::new(COMPLETION_ACTIVE)))
+        .unwrap_or(false)
+}
+
+/// Zeichnet das Formular. Gibt das Feld zurück, über dem die Maus gerade steht (für die Markierung in der Vorschau).
+pub fn show(
+    ui: &mut egui::Ui,
+    e: &mut Entry,
+    c: &FormCtx<'_>,
+    focus: Option<FieldFocus>,
+    actions: &mut Vec<Action>,
+) -> Option<FieldFocus> {
+    let mut hovered = None;
+    ui.data_mut(|d| d.insert_temp(egui::Id::new(COMPLETION_ACTIVE), false));
     egui::Panel::bottom("formular-aktionen").show(ui, |ui| {
         ui.add_space(8.0);
         let ready =
@@ -65,6 +87,13 @@ pub fn show(ui: &mut egui::Ui, e: &mut Entry, c: &FormCtx<'_>, focus: Option<Fie
     });
 
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        // Bereich eines Felds (von `top` bis zur aktuellen Position) unter der Maus?
+        let track = |ui: &egui::Ui, top: f32, field: FieldFocus, hovered: &mut Option<FieldFocus>| {
+            let area = egui::Rect::from_x_y_ranges(ui.max_rect().x_range(), top..=ui.cursor().top());
+            if ui.rect_contains_pointer(area) {
+                *hovered = Some(field);
+            }
+        };
         ui.add_space(10.0);
         let ctx = ui.ctx().clone();
         let suggestion = match &e.analysis {
@@ -95,6 +124,7 @@ pub fn show(ui: &mut egui::Ui, e: &mut Entry, c: &FormCtx<'_>, focus: Option<Fie
         ui.add_space(8.0);
 
         // Datum
+        let top = ui.cursor().top();
         let conf = s.map(|s| (s.datum.value == e.fields.datum).then_some(s.datum.confidence));
         field_header(ui, theme::DATUM, tr("Datum"), conf, c.threshold, "1");
         let show_invalid = parse_date(&e.date_text).is_none() && !e.date_text.is_empty();
@@ -115,9 +145,11 @@ pub fn show(ui: &mut egui::Ui, e: &mut Entry, c: &FormCtx<'_>, focus: Option<Fie
             date_chips(ui, s, e);
             source_line(ui, &s.datum.source);
         }
+        track(ui, top, FieldFocus::Datum, &mut hovered);
         ui.add_space(10.0);
 
         // Unternehmen
+        let top = ui.cursor().top();
         let conf = s.map(|s| (s.unternehmen.value == e.fields.unternehmen).then_some(s.unternehmen.confidence));
         field_header(ui, theme::UNTERNEHMEN, tr("Unternehmen"), conf, c.threshold, "2");
         let resp = ui.add_sized(
@@ -125,12 +157,21 @@ pub fn show(ui: &mut egui::Ui, e: &mut Entry, c: &FormCtx<'_>, focus: Option<Fie
             egui::TextEdit::singleline(&mut e.fields.unternehmen).id(FieldFocus::Unternehmen.id()),
         );
         take_focus(&resp, focus, FieldFocus::Unternehmen);
+        autocomplete(
+            ui,
+            &resp,
+            &mut e.fields.unternehmen,
+            c.companies,
+            FieldFocus::Unternehmen.id(),
+        );
         if let Some(s) = s {
             source_line(ui, &s.unternehmen.source);
         }
+        track(ui, top, FieldFocus::Unternehmen, &mut hovered);
         ui.add_space(10.0);
 
         // Thema
+        let top = ui.cursor().top();
         let conf = s.map(|s| (s.thema.value == e.fields.thema).then_some(s.thema.confidence));
         field_header(ui, theme::THEMA, tr("Thema"), conf, c.threshold, "3");
         let resp = ui.add_sized(
@@ -138,9 +179,11 @@ pub fn show(ui: &mut egui::Ui, e: &mut Entry, c: &FormCtx<'_>, focus: Option<Fie
             egui::TextEdit::singleline(&mut e.fields.thema).id(FieldFocus::Thema.id()),
         );
         take_focus(&resp, focus, FieldFocus::Thema);
+        autocomplete(ui, &resp, &mut e.fields.thema, c.topics, FieldFocus::Thema.id());
         if let Some(s) = s {
             source_line(ui, &s.thema.source);
         }
+        track(ui, top, FieldFocus::Thema, &mut hovered);
         ui.add_space(10.0);
 
         // Rechnung
@@ -164,6 +207,92 @@ pub fn show(ui: &mut egui::Ui, e: &mut Entry, c: &FormCtx<'_>, focus: Option<Fie
         ui.add_space(14.0);
 
         result_box(ui, e, c);
+    });
+    hovered
+}
+
+/// Vorschlagsliste unter einem Textfeld: passende Einträge (Anfang zuerst), ↓/↑ wählen, ↵ oder Klick übernimmt.
+fn autocomplete(ui: &mut egui::Ui, resp: &egui::Response, value: &mut String, options: &[String], id: egui::Id) {
+    let index_key = id.with("index");
+    let rect_key = id.with("liste");
+    let popup_rect: Option<egui::Rect> = ui.data(|d| d.get_temp(rect_key));
+    // Offen, solange das Feld den Fokus hat oder die Maus über der Liste steht (sonst ginge der Klick verloren)
+    let over_popup = popup_rect.is_some_and(|r| ui.rect_contains_pointer(r));
+    let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let index: Option<usize> = ui.data(|d| d.get_temp(index_key)).flatten();
+    let needle = value.trim().to_lowercase();
+    let mut matches: Vec<&String> = options
+        .iter()
+        .filter(|o| !needle.is_empty() && o.to_lowercase().contains(&needle) && o.trim() != value.trim())
+        .collect();
+    matches.sort_by_key(|o| (!o.to_lowercase().starts_with(&needle), o.len()));
+    matches.truncate(MAX_COMPLETIONS);
+
+    // ↵ im Feld übernimmt den gewählten Eintrag (das Feld verliert dabei den Fokus)
+    if resp.lost_focus() && enter {
+        if let Some(choice) = index.and_then(|i| matches.get(i)) {
+            *value = (*choice).clone();
+        }
+        ui.data_mut(|d| {
+            d.remove::<Option<usize>>(index_key);
+            d.remove::<egui::Rect>(rect_key);
+        });
+        return;
+    }
+    if matches.is_empty() || !(resp.has_focus() || over_popup) {
+        ui.data_mut(|d| {
+            d.remove::<Option<usize>>(index_key);
+            d.remove::<egui::Rect>(rect_key);
+        });
+        return;
+    }
+    let mut index = index.filter(|&i| i < matches.len());
+    if resp.has_focus() {
+        ui.input_mut(|i| {
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
+                index = Some(index.map_or(0, |x| (x + 1).min(matches.len() - 1)));
+            }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
+                index = index.and_then(|x| x.checked_sub(1));
+            }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                index = None;
+            }
+        });
+    }
+    let mut picked = None;
+    let area = egui::Area::new(id.with("popup"))
+        .fixed_pos(resp.rect.left_bottom() + egui::vec2(0.0, 2.0))
+        .order(egui::Order::Foreground)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_width(resp.rect.width() - 12.0);
+                for (i, m) in matches.iter().enumerate() {
+                    let r = ui.add(
+                        egui::Button::selectable(index == Some(i), m.as_str())
+                            .min_size(egui::vec2(ui.available_width(), 0.0)),
+                    );
+                    if r.clicked() {
+                        picked = Some((*m).clone());
+                    }
+                }
+            });
+        });
+    if let Some(p) = picked {
+        *value = p;
+        ui.data_mut(|d| {
+            d.remove::<Option<usize>>(index_key);
+            d.remove::<egui::Rect>(rect_key);
+        });
+        resp.request_focus();
+        return;
+    }
+    ui.data_mut(|d| {
+        d.insert_temp(index_key, index);
+        d.insert_temp(rect_key, area.response.rect);
+        if index.is_some() {
+            d.insert_temp(egui::Id::new(COMPLETION_ACTIVE), true);
+        }
     });
 }
 

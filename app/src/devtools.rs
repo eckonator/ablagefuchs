@@ -6,7 +6,8 @@
 //! - `AF_SIZE=1600x1000`, `AF_LANG=de|en`, `AF_THEME=hell|dunkel`
 //! - `AF_SETTINGS=allgemein|name|ordner|ueber` öffnet die Einstellungen auf dieser Seite
 //! - `AF_FILE=3` wählt die dritte Datei
-//! - `AF_KEYS=enter,enter,cmd+z,alt+r,cmd+down` drückt nacheinander diese Tasten (Ablauf ohne Maus testen)
+//! - `AF_KEYS=enter,enter,cmd+z,alt+r,cmd+down` drückt nacheinander diese Tasten (Ablauf ohne Maus testen);
+//!   dazu `text:Abc`, `move:x:y`, `press:x:y`, `release:x:y` (Maus in Punkt, für Klicks und Ziehen)
 //! - Bei diesen Schaltern wird nichts gespeichert.
 
 use std::io::Write;
@@ -29,6 +30,7 @@ pub struct DevTools {
     pub file: Option<usize>,
     keys: VecDeque<String>,
     key_frame: u64,
+    last_key_frame: u64,
     frame: u64,
     started: Option<std::time::Instant>,
     requested: bool,
@@ -74,6 +76,26 @@ impl DevTools {
             return;
         }
         let Some(spec) = self.keys.pop_front() else { return };
+        self.last_key_frame = self.key_frame;
+        let pointer = |rest: &str| -> Option<egui::Pos2> {
+            let (x, y) = rest.split_once(':')?;
+            Some(egui::pos2(x.parse().ok()?, y.parse().ok()?))
+        };
+        for (prefix, pressed) in [("press:", Some(true)), ("release:", Some(false)), ("move:", None)] {
+            if let Some(pos) = spec.strip_prefix(prefix).and_then(pointer) {
+                log::info!("AF_KEYS: {spec}");
+                raw.events.push(Event::PointerMoved(pos));
+                if let Some(pressed) = pressed {
+                    raw.events.push(Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    });
+                }
+                return;
+            }
+        }
         if let Some(text) = spec.strip_prefix("text:") {
             raw.events.push(Event::Text(text.to_string()));
             return;
@@ -131,7 +153,10 @@ impl DevTools {
         let Some(path) = self.screenshot.clone() else { return };
         self.frame += 1;
         let started = *self.started.get_or_insert_with(std::time::Instant::now);
+        // Erst wenn alle eingespeisten Tasten verarbeitet sind (plus etwas Zeit zum Zeichnen)
         if !self.requested
+            && self.keys.is_empty()
+            && self.key_frame > self.last_key_frame + 20
             && self.frame >= SCREENSHOT_AFTER_FRAMES
             && started.elapsed().as_secs_f32() >= SCREENSHOT_AFTER_SECS
         {
