@@ -397,7 +397,7 @@ Unter Windows und Linux steht `Strg` statt `⌘` und `Alt` statt `⌥`.
   - Unternehmen grün `#1f9d55`
   - Thema bernstein `#c98500`
   - Rechnung rot `#d64545`
-- **Schrift:** Systemschrift oder eine eingebettete freie Schrift (z. B. Inter, OFL). Symbole wie `→ ✓ ⚠ ↷ ○` nach dem Bauen im Screenshot prüfen (FadeWerk-Erfahrung: egui-Standardschrift hat Lücken).
+- **Schrift:** egui-Standardschrift plus ein eingebetteter Ausschnitt aus DejaVu Sans (Pfeile, Tastensymbole ⌘ ⌥ ↵, ✔ ⚠ ◀ ▶; `assets/fonts/`, Lizenz Bitstream Vera). Neue Symbole nach dem Bauen im Screenshot prüfen.
 - **Fenster:** Mindestgröße 1100×650 pt. Unter 1250 pt Breite wird die Dateiliste automatisch eingeklappt.
 
 ### 7.6 Sprachen (Deutsch / Englisch)
@@ -583,6 +583,7 @@ Es ersetzt Namen, Adressen, IBANs und Beträge durch Platzhalter und behält Lay
 | `AF_SETTINGS=allgemein\|name\|ordner\|erkennung\|metadaten\|wissen\|ueber` | Einstellungen öffnen |
 | `AF_FILE=3` | Datei Nr. 3 auswählen |
 | `AF_RENDERER=glow\|wgpu` | Grafik-Backend erzwingen |
+| `AF_KEYS=enter,cmd+z,alt+r,cmd+down` | drückt nacheinander diese Tasten (Tastatur-Ablauf ohne Maus testen, auch mit `text:…`) |
 
 ---
 

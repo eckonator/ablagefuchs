@@ -1,54 +1,119 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Ablagefuchs: gescannte PDFs sichten und sinnvoll umbenennen.
-//! Stand M0: leeres Fenster, aber schon mit der Grafikwahl aus FadeWerk DJ (Windows nur DirectX 12,
-//! Ausweichweg OpenGL). Einstellungen und Startmarkierung folgen in M2.
 
 // Unter Windows im Release kein zusätzliches Konsolenfenster öffnen
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod app;
+mod devtools;
+mod diagnose;
+mod file_list;
+mod fonts;
+mod form;
+mod i18n;
+mod preview;
+mod settings;
+mod settings_ui;
+mod theme;
+mod worker;
+
 use std::cell::Cell;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use eframe::egui;
 
+use crate::devtools::DevTools;
+use crate::settings::{GraphicsSetting, LangSetting, Settings, ThemeSetting};
+
 fn main() -> eframe::Result {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    // AF_RENDERER=glow|wgpu erzwingt das Grafik-Backend
+    let dev = DevTools::from_env();
+    let isolated = dev.isolated();
+    diagnose::init(!isolated);
+    let mut settings = Settings::load();
+    if let Some(l) = &dev.lang {
+        settings.language = if l == "en" { LangSetting::En } else { LangSetting::De };
+    }
+    if let Some(t) = &dev.theme {
+        settings.theme = if t == "dunkel" || t == "dark" {
+            ThemeSetting::Dark
+        } else {
+            ThemeSetting::Light
+        };
+    }
+    i18n::apply_setting(settings.language);
+    // Optional: ein Ordner als Argument wird beim Start geöffnet
+    let start_dir = std::env::args_os().nth(1).map(PathBuf::from).filter(|p| p.is_dir());
+
+    // Kam der letzte Start mit wgpu nicht bis zum ersten Bild, ist vermutlich der Grafiktreiber abgestürzt
+    // (das kann Rust nicht abfangen): ab jetzt OpenGL
+    if settings.graphics == GraphicsSetting::Auto
+        && !settings.opengl_fallback
+        && std::env::var_os("AF_RENDERER").is_none()
+        && diagnose::unfinished_graphics_start().is_some_and(|r| r == "wgpu")
+    {
+        log::warn!("Der letzte Start mit wgpu kam nicht bis zum ersten Bild, nehme ab jetzt OpenGL");
+        settings.opengl_fallback = true;
+        settings.save();
+    }
     let renderer = match std::env::var("AF_RENDERER").as_deref() {
         Ok("glow" | "opengl") => eframe::Renderer::Glow,
+        Ok("wgpu") => eframe::Renderer::Wgpu,
+        _ if settings.graphics == GraphicsSetting::OpenGl => eframe::Renderer::Glow,
+        _ if settings.graphics == GraphicsSetting::Auto && settings.opengl_fallback => eframe::Renderer::Glow,
         _ => eframe::Renderer::Wgpu,
     };
     let app_created = Rc::new(Cell::new(false));
-    let mut result = run(renderer, &app_created);
+    let mut dev = Some(dev);
+    let mut result = run(renderer, settings.clone(), &mut dev, start_dir.clone(), &app_created);
     // Scheitert wgpu schon beim Einrichten (Treiber, virtuelle Maschinen, Remote Desktop): OpenGL versuchen
     if let Err(e) = &result
         && renderer == eframe::Renderer::Wgpu
         && !app_created.get()
     {
         log::error!("Grafik über wgpu nicht verfügbar ({e}), versuche OpenGL");
-        result = run(eframe::Renderer::Glow, &app_created);
+        settings.opengl_fallback = true;
+        if !isolated {
+            settings.save();
+        }
+        result = run(eframe::Renderer::Glow, settings, &mut dev, start_dir, &app_created);
+    }
+    if let Err(e) = &result {
+        log::error!("Programm beendet mit Fehler: {e}");
+        if cfg!(windows) && !app_created.get() {
+            diagnose::show_error(&i18n::trf("Das Fenster ließ sich nicht öffnen:\n{}", &[e]));
+        }
     }
     result
 }
 
-fn run(renderer: eframe::Renderer, app_created: &Rc<Cell<bool>>) -> eframe::Result {
+fn run(
+    renderer: eframe::Renderer,
+    settings: Settings,
+    dev: &mut Option<DevTools>,
+    start_dir: Option<PathBuf>,
+    app_created: &Rc<Cell<bool>>,
+) -> eframe::Result {
     log::info!("Grafik: {renderer}");
+    diagnose::graphics_starting(&renderer.to_string());
+    let size = DevTools::window_size().unwrap_or([1440.0, 900.0]);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Ablagefuchs")
-            .with_inner_size([1400.0, 900.0])
+            .with_inner_size(size)
             .with_min_inner_size([1100.0, 650.0]),
         renderer,
         wgpu_options: wgpu_options(),
         ..Default::default()
     };
     let created = Rc::clone(app_created);
+    let dev = dev.take().unwrap_or_default();
     eframe::run_native(
         "Ablagefuchs",
         options,
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
             created.set(true);
-            Ok(Box::new(AblagefuchsApp))
+            Ok(Box::new(app::App::new(cc, settings, dev, start_dir)))
         }),
     )
 }
@@ -64,16 +129,4 @@ fn wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
         options.wgpu_setup = WgpuSetup::CreateNew(setup);
     }
     options
-}
-
-struct AblagefuchsApp;
-
-impl eframe::App for AblagefuchsApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.centered_and_justified(|ui| {
-                ui.heading(format!("Ablagefuchs {} – Grundgerüst", env!("CARGO_PKG_VERSION")));
-            });
-        });
-    }
 }

@@ -182,3 +182,34 @@ impl WordBuilder {
         }
     }
 }
+
+/// Gerenderte Seite als RGBA-Bild plus Seitengröße in Punkt (für die Umrechnung der Markierungen).
+pub struct RenderedPage {
+    pub width: usize,
+    pub height: usize,
+    pub rgba: Vec<u8>,
+    pub page_width_pt: f32,
+    pub page_height_pt: f32,
+}
+
+/// Rendert Seite `index` (ab 0) mit `target_width` Pixeln Breite.
+pub fn render_page(path: &Path, index: usize, target_width: u32) -> anyhow::Result<RenderedPage> {
+    let doc = pdfium()?
+        .load_pdf_from_file(path, None)
+        .with_context(|| format!("PDF lässt sich nicht öffnen: {}", path.display()))?;
+    let page = doc
+        .pages()
+        .get(i32::try_from(index).unwrap_or(i32::MAX))
+        .map_err(|e| anyhow!("Seite {} fehlt: {e}", index + 1))?;
+    let config = PdfRenderConfig::new().set_target_width(i32::try_from(target_width).unwrap_or(1200));
+    let bitmap = page
+        .render_with_config(&config)
+        .map_err(|e| anyhow!("Seite {} nicht darstellbar: {e}", index + 1))?;
+    Ok(RenderedPage {
+        width: usize::try_from(bitmap.width()).unwrap_or(0),
+        height: usize::try_from(bitmap.height()).unwrap_or(0),
+        rgba: bitmap.as_rgba_bytes(),
+        page_width_pt: page.width().value,
+        page_height_pt: page.height().value,
+    })
+}

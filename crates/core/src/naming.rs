@@ -216,6 +216,11 @@ impl Template {
         tidy(&out)
     }
 
+    /// Setzt die Felder ein, ohne Endung und Längenbegrenzung (z. B. für Ordnervorlagen wie `{jahr}/{unternehmen}`).
+    pub fn render(&self, f: &NameFields, opts: &NamingOptions) -> String {
+        self.render_raw(f, opts)
+    }
+
     /// Fertiger Dateiname mit `.pdf`, auf [`MAX_NAME_BYTES`] gekürzt (zuerst am Thema, dann am Unternehmen).
     pub fn file_name(&self, f: &NameFields, opts: &NamingOptions) -> String {
         let mut fields = f.clone();

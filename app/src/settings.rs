@@ -1,0 +1,126 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//! Gespeicherte Einstellungen als JSON im Konfigurationsordner des Systems
+//! (macOS: ~/Library/Application Support/Ablagefuchs/einstellungen.json).
+//! Fehlende Felder fallen auf Standardwerte zurück.
+
+use std::path::{Path, PathBuf};
+
+use af_core::naming::{DEFAULT_TEMPLATE, NamingOptions};
+use serde::{Deserialize, Serialize};
+
+pub const APP_DIR: &str = "Ablagefuchs";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LangSetting {
+    #[default]
+    System,
+    De,
+    En,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ThemeSetting {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum GraphicsSetting {
+    /// wgpu (Windows: DirectX 12), bei Problemen automatisch OpenGL
+    #[default]
+    Auto,
+    Wgpu,
+    OpenGl,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    pub language: LangSetting,
+    pub theme: ThemeSetting,
+    pub graphics: GraphicsSetting,
+    /// Automatisch gesetzt, wenn wgpu nicht startete; gilt bei `GraphicsSetting::Auto`
+    pub opengl_fallback: bool,
+    pub template: String,
+    pub naming: NamingOptions,
+    /// Nach dem Umbenennen ins Archiv verschieben
+    pub move_to_archive: bool,
+    pub archive_root: Option<PathBuf>,
+    pub folder_template: String,
+    /// zuletzt geöffnete Eingangsordner, neuester zuerst
+    pub recent_inboxes: Vec<PathBuf>,
+    pub show_file_list: bool,
+    pub zoom: f32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            language: LangSetting::System,
+            theme: ThemeSetting::System,
+            graphics: GraphicsSetting::Auto,
+            opengl_fallback: false,
+            template: DEFAULT_TEMPLATE.to_string(),
+            naming: NamingOptions::default(),
+            move_to_archive: false,
+            archive_root: None,
+            folder_template: "{jahr}/{unternehmen}".to_string(),
+            recent_inboxes: Vec::new(),
+            show_file_list: true,
+            zoom: 1.0,
+        }
+    }
+}
+
+pub fn config_dir() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join(APP_DIR))
+}
+
+fn settings_path() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("einstellungen.json"))
+}
+
+/// Erst in eine Zwischendatei schreiben, dann umbenennen: Ein Absturz hinterlässt nie eine halbe Datei.
+pub fn write_atomic(path: &Path, contents: &str) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, contents)?;
+    std::fs::rename(tmp, path)
+}
+
+impl Settings {
+    pub fn load() -> Self {
+        let Some(path) = settings_path() else {
+            return Settings::default();
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
+                log::warn!("Einstellungen nicht lesbar ({e}), nehme Standardwerte");
+                Settings::default()
+            }),
+            Err(_) => Settings::default(),
+        }
+    }
+
+    pub fn save(&self) {
+        let Some(path) = settings_path() else { return };
+        match serde_json::to_string_pretty(self) {
+            Ok(json) => {
+                if let Err(e) = write_atomic(&path, &json) {
+                    log::error!("Einstellungen nicht gespeichert: {e}");
+                }
+            }
+            Err(e) => log::error!("Einstellungen nicht gespeichert: {e}"),
+        }
+    }
+
+    pub fn remember_inbox(&mut self, dir: &Path) {
+        self.recent_inboxes.retain(|d| d != dir);
+        self.recent_inboxes.insert(0, dir.to_path_buf());
+        self.recent_inboxes.truncate(8);
+    }
+}
