@@ -68,7 +68,7 @@ fn toolbar(ui: &mut egui::Ui, e: &Entry, c: &PreviewCtx, actions: &mut Vec<Actio
         .inner_margin(egui::Margin::symmetric(12, 6))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.add(egui::Label::new(RichText::new(e.file_name()).monospace()).truncate());
+                // Von rechts: erst die Bedienelemente, der Dateiname bekommt den Rest und wird notfalls gekürzt
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let pages = e.pages();
                     if ui.add_enabled(e.page + 1 < pages, egui::Button::new("▶")).clicked() {
@@ -93,6 +93,10 @@ fn toolbar(ui: &mut egui::Ui, e: &Entry, c: &PreviewCtx, actions: &mut Vec<Actio
                     if c.show_highlights {
                         legend(ui);
                     }
+                    ui.add_space(12.0);
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.add(egui::Label::new(RichText::new(e.file_name()).monospace()).truncate());
+                    });
                 });
             });
         });

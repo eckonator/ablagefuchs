@@ -398,7 +398,7 @@ Unter Windows und Linux steht `Strg` statt `⌘` und `Alt` statt `⌥`.
   - Unternehmen grün `#1f9d55`
   - Thema bernstein `#c98500`
   - Rechnung rot `#d64545`
-- **Schrift:** egui-Standardschrift plus ein eingebetteter Ausschnitt aus DejaVu Sans (Pfeile, Tastensymbole ⌘ ⌥ ↵, ✔ ⚠ ◀ ▶; `assets/fonts/`, Lizenz Bitstream Vera). Neue Symbole nach dem Bauen im Screenshot prüfen.
+- **Schrift:** Inter Regular (`assets/fonts/`, OFL-1.1; Wunsch Markus 2026-10-13: kräftiger als die feine egui-Standardschrift Ubuntu Light), dahinter die egui-Schriften und ein eingebetteter Ausschnitt aus DejaVu Sans (Pfeile, Tastensymbole ⌘ ⌥ ↵, ✔ ⚠ ◀ ▶; `assets/fonts/`, Lizenz Bitstream Vera). Neue Symbole nach dem Bauen im Screenshot prüfen.
 - **Fenster:** Mindestgröße 1100×650 pt. Unter 1250 pt Breite wird die Dateiliste automatisch eingeklappt.
 
 ### 7.6 Sprachen (Deutsch / Englisch)

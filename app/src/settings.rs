@@ -84,6 +84,8 @@ pub struct Settings {
     pub learn_with_ocr: bool,
     /// Metadaten beim Umbenennen (Bauplan §8)
     pub meta: MetaSettings,
+    /// Beim Start bei GitHub nach einer neuen Version fragen; `None` = noch nicht gefragt
+    pub update_check: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -142,6 +144,7 @@ impl Default for Settings {
             learn_folder: None,
             learn_with_ocr: false,
             meta: MetaSettings::default(),
+            update_check: None,
 
             zoom: 1.0,
         }

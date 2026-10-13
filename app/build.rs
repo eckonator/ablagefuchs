@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Commit-Kurzkennung für die Seite „Über“.
+//! Commit-Kurzkennung für die Seite „Über“; unter Windows zusätzlich das Programm-Icon in die .exe.
 
 fn main() {
     let hash = std::process::Command::new("git")
@@ -12,4 +12,15 @@ fn main() {
     println!("cargo:rustc-env=AF_GIT_HASH={hash}");
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rerun-if-changed=../.git/refs/heads");
+
+    // Icon nur beim Bauen auf Windows für Windows (braucht dort rc.exe); der Gegencheck vom Mac aus lässt es weg
+    #[cfg(windows)]
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo:rerun-if-changed=../assets/ablagefuchs.ico");
+        let mut res = winresource::WindowsResource::new();
+        res.set_icon("../assets/ablagefuchs.ico");
+        if let Err(e) = res.compile() {
+            println!("cargo:warning=Icon nicht eingebettet: {e}");
+        }
+    }
 }

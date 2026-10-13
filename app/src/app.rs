@@ -8,7 +8,7 @@ use af_core::Suggestion;
 use af_core::files::Journal;
 use af_core::naming::{NameFields, Template, TemplateError};
 use chrono::NaiveDate;
-use eframe::egui::{self, Event, Key, KeyboardShortcut, Modifiers};
+use eframe::egui::{self, Event, Key, KeyboardShortcut, Modifiers, RichText};
 
 use crate::devtools::DevTools;
 use crate::i18n::{tr, trf};
@@ -240,6 +240,12 @@ pub struct App {
     /// Korrekturen, die während des Lernens aus einem Ordner anfallen (werden danach nachgetragen)
     pending_corrections: Vec<(NameFields, af_core::LearnInfo, Option<String>)>,
     pub last_learn: Option<af_ocr::archive::LearnStats>,
+    update_rx: Option<std::sync::mpsc::Receiver<Option<crate::update::NewVersion>>>,
+    /// Gefundene neue Version (Hinweisleiste), bis der Nutzer sie wegklickt
+    new_version: Option<crate::update::NewVersion>,
+    /// Hinweis „nach Updates suchen?“ beim ersten Start
+    ask_update: bool,
+    icon: Option<egui::TextureHandle>,
     focus: Option<FieldFocus>,
     preview_width: f32,
     /// Ordnerüberwachung: Zeitpunkt der letzten Prüfung und neue Dateien, die noch geschrieben werden könnten
@@ -281,6 +287,10 @@ impl App {
             learning: None,
             pending_corrections: Vec::new(),
             last_learn: None,
+            update_rx: None,
+            new_version: None,
+            ask_update: false,
+            icon: None,
             focus: None,
             preview_width: 600.0,
             last_poll: 0.0,
@@ -291,6 +301,25 @@ impl App {
             dev,
         };
         set_threshold(app.settings.threshold);
+        // Update-Prüfung: beim ersten Start fragen, danach nur wenn erlaubt (nicht bei Entwicklerläufen,
+        // außer mit AF_UPDATE_URL)
+        let dev_update = std::env::var_os("AF_UPDATE_URL").is_some();
+        match app.settings.update_check {
+            None if persist => app.ask_update = true,
+            Some(true) if persist => app.update_rx = Some(crate::update::check_in_background(cc.egui_ctx.clone())),
+            _ if dev_update => app.update_rx = Some(crate::update::check_in_background(cc.egui_ctx.clone())),
+            _ => {}
+        }
+        if let Ok(img) = eframe::icon_data::from_png_bytes(include_bytes!("../../assets/icon-256.png")) {
+            let image = egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.rgba);
+            let tex = cc
+                .egui_ctx
+                .load_texture("app-icon", image, egui::TextureOptions::LINEAR);
+            // für die Seite „Über“
+            cc.egui_ctx
+                .data_mut(|d| d.insert_temp(egui::Id::new("app-icon"), tex.clone()));
+            app.icon = Some(tex);
+        }
         // Wissen: im Normalbetrieb aus dem Einstellungsordner, bei Entwicklerläufen nur mit AF_WISSEN
         app.knowledge_file = if persist {
             settings::knowledge_path()
@@ -1260,6 +1289,67 @@ impl App {
         (clean(companies), clean(topics))
     }
 
+    /// Hinweisleiste „neue Version“ und die einmalige Frage, ob nach Updates gesucht werden darf.
+    fn update_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        if let Some(rx) = &self.update_rx
+            && let Ok(result) = rx.try_recv()
+        {
+            self.new_version = result;
+            self.update_rx = None;
+        }
+        if self.ask_update {
+            egui::Panel::top("update-frage").show(ui, |ui| {
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(tr("Beim Start nach neuen Versionen suchen?")).strong());
+                    ui.label(
+                        RichText::new(tr("Dabei fragt Ablagefuchs nur bei GitHub nach der neuesten Version – ohne Daten über deine Dokumente."))
+                            .weak(),
+                    );
+                    if ui.button(tr("Ja, prüfen")).clicked() {
+                        self.settings.update_check = Some(true);
+                        self.ask_update = false;
+                        self.save_settings();
+                        self.update_rx = Some(crate::update::check_in_background(ctx.clone()));
+                    }
+                    if ui.button(tr("Nein")).clicked() {
+                        self.settings.update_check = Some(false);
+                        self.ask_update = false;
+                        self.save_settings();
+                    }
+                });
+                ui.add_space(4.0);
+            });
+        }
+        let mut close = false;
+        if let Some(v) = &self.new_version {
+            egui::Panel::top("update-hinweis").show(ui, |ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(trf(
+                            "Ablagefuchs {} ist verfügbar (installiert: {}).",
+                            &[&v.version, &env!("CARGO_PKG_VERSION")],
+                        ))
+                        .strong(),
+                    );
+                    if ui.button(tr("Download-Seite öffnen")).clicked() {
+                        ctx.open_url(egui::OpenUrl::new_tab(&v.url));
+                    }
+                    if ui.button(tr("Später")).clicked() {
+                        close = true;
+                    }
+                });
+                ui.add_space(4.0);
+            });
+        }
+        if close {
+            self.new_version = None;
+        }
+    }
+
     /// Kleines Menü an der Stelle einer Textauswahl in der Vorschau.
     fn selection_menu(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) {
         let Some(sel) = &mut self.selection else { return };
@@ -1365,6 +1455,8 @@ impl eframe::App for App {
         egui::Panel::bottom("statusbar")
             .exact_size(26.0)
             .show(ui, Self::statusbar);
+
+        self.update_ui(ui, &ctx);
 
         if self.entries.is_empty() {
             egui::CentralPanel::default().show(ui, |ui| self.empty_state(ui, &mut actions));

@@ -29,13 +29,17 @@ pub fn show(ui: &mut egui::Ui, entries: &[Entry], current: Option<usize>, filter
     let ctx = ui.ctx().clone();
     egui::Panel::bottom("dateiliste-fuss").show(ui, |ui| {
         ui.add_space(4.0);
-        ui.horizontal(|ui| {
+        // Umbrechen statt abschneiden, wenn die Spalte schmal ist
+        ui.horizontal_wrapped(|ui| {
             let (r, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), Sense::hover());
             ui.painter().circle_filled(r.center(), 3.5, theme::ok(ui.ctx()));
-            ui.label(
-                RichText::new(tr("Ordner wird überwacht – neue Scans erscheinen automatisch"))
-                    .small()
-                    .weak(),
+            ui.add(
+                egui::Label::new(
+                    RichText::new(tr("Ordner wird überwacht – neue Scans erscheinen automatisch"))
+                        .small()
+                        .weak(),
+                )
+                .wrap(),
             );
         });
         ui.add_space(4.0);
@@ -80,10 +84,10 @@ pub fn show(ui: &mut egui::Ui, entries: &[Entry], current: Option<usize>, filter
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(icon).color(color).size(15.0));
                         ui.vertical(|ui| {
-                            let name = RichText::new(&e.original).monospace().size(12.0);
+                            let name = RichText::new(&e.original).monospace().size(13.0);
                             let name = if e.is_open() { name } else { name.strikethrough().weak() };
                             ui.add(egui::Label::new(name).truncate());
-                            let sub = RichText::new(sub).size(11.5);
+                            let sub = RichText::new(sub).size(12.5);
                             let sub = if e.done.is_some() {
                                 sub.color(theme::ok(&ctx))
                             } else {

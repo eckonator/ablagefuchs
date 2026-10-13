@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+  <!-- Ablagefuchs-Icon (eigene Gestaltung): Briefbogen mit den Markierungsfarben der App, davor ein Fuchskopf.
+       macOS-Squircle mit 100 px Rand nach Apples Raster. Rendern: scripts/make-icon.sh -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26466e"/>
+      <stop offset="1" stop-color="#132741"/>
+    </linearGradient>
+    <linearGradient id="fur" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff9a3c"/>
+      <stop offset="1" stop-color="#e2611b"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="none" stroke="#fff" stroke-opacity="0.08" stroke-width="4"/>
+
+  <!-- Briefbogen, leicht gedreht -->
+  <g transform="rotate(-7 430 470)" filter="url(#shadow)">
+    <path d="M250 200 H560 L640 280 V730 Q640 750 620 750 H270 Q250 750 250 730 Z" fill="#f7f8fb"/>
+    <path d="M560 200 V260 Q560 280 580 280 H640 Z" fill="#d9dee8"/>
+    <rect x="292" y="250" width="170" height="26" rx="8" fill="#1f9d55" opacity="0.85"/>
+    <rect x="292" y="320" width="300" height="14" rx="7" fill="#c3cad6"/>
+    <rect x="292" y="350" width="250" height="14" rx="7" fill="#c3cad6"/>
+    <rect x="292" y="400" width="120" height="22" rx="7" fill="#2f6fed" opacity="0.9"/>
+    <rect x="292" y="452" width="300" height="24" rx="8" fill="#c98500" opacity="0.85"/>
+    <rect x="292" y="510" width="300" height="14" rx="7" fill="#c3cad6"/>
+    <rect x="292" y="540" width="220" height="14" rx="7" fill="#c3cad6"/>
+    <rect x="292" y="570" width="270" height="14" rx="7" fill="#c3cad6"/>
+  </g>
+
+  <!-- Fuchskopf -->
+  <g filter="url(#shadow)">
+    <path d="M500 470 L585 585 H735 L820 470 L812 660 L660 838 L508 660 Z" fill="url(#fur)"/>
+    <path d="M522 512 L566 584 L524 612 Z" fill="#7a2e0e"/>
+    <path d="M798 512 L754 584 L796 612 Z" fill="#7a2e0e"/>
+    <path d="M508 660 L612 712 L660 838 Z" fill="#fff6ee"/>
+    <path d="M812 660 L708 712 L660 838 Z" fill="#fff6ee"/>
+    <path d="M572 668 Q600 650 628 668 Q600 678 572 668 Z" fill="#1b1410"/>
+    <path d="M692 668 Q720 650 748 668 Q720 678 692 668 Z" fill="#1b1410"/>
+    <path d="M640 808 Q660 806 680 808 L660 836 Z" fill="#1b1410"/>
+  </g>
+</svg>

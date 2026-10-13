@@ -1,0 +1,173 @@
+# Baut Ablagefuchs für macOS, Windows und Linux und veröffentlicht einen Release unter der
+# Versionsnummer aus Cargo.toml (Tag `v<Version>`).
+#
+# - Jeder Push auf main ersetzt den Release dieser Version durch den neuen Stand.
+# - Neue Version: `version` in Cargo.toml erhöhen; der nächste Push legt den neuen Release an,
+#   ältere Versionen bleiben stehen. Die App meldet neue Versionen (wenn der Nutzer das erlaubt).
+# - Von Hand unter „Actions → Release → Run workflow“: nur Artefakte, kein Release.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            name: macOS
+          - os: windows-latest
+            name: Windows
+          # Älteres Ubuntu, damit das Programm auch auf älteren Distributionen läuft (glibc)
+          - os: ubuntu-22.04
+            name: Linux
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust installieren
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.name == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Linux-Pakete
+        if: matrix.name == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev \
+            libxrandr-dev libxi-dev libgl1-mesa-dev pkg-config
+
+      - name: pdfium holen
+        shell: bash
+        run: |
+          case "${{ matrix.name }}" in
+            macOS) cargo xtask fetch-pdfium mac-arm64 mac-x64 ;;
+            Windows) cargo xtask fetch-pdfium win-x64 ;;
+            Linux) cargo xtask fetch-pdfium linux-x64 ;;
+          esac
+
+      - name: Tests
+        run: cargo test --workspace --release
+        env:
+          AF_REQUIRE_PDFIUM: "1"
+
+      - name: Lizenzhinweise sammeln
+        shell: bash
+        run: |
+          cargo install cargo-bundle-licenses --locked
+          cargo bundle-licenses --format yaml --output THIRD-PARTY-LICENSES.yml
+          mkdir -p licenses
+          cp LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.yml licenses/
+          cp assets/fonts/DejaVu-LICENSE.txt assets/fonts/Inter-LICENSE.txt licenses/
+          cp "$(ls -d vendor/pdfium/*/LICENSE | head -1)" licenses/PDFium-LICENSE.txt
+
+      - name: Version bestimmen
+        id: version
+        shell: bash
+        run: echo "version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+
+      # macOS: Universal-Binary (Apple Silicon + Intel), als .app gebündelt (mit Universal-pdfium) und ad-hoc signiert
+      - name: macOS bauen
+        if: matrix.name == 'macOS'
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: |
+          cargo build --release -p ablagefuchs --target aarch64-apple-darwin
+          cargo build --release -p ablagefuchs --target x86_64-apple-darwin
+          mkdir -p target/release
+          lipo -create -output target/release/ablagefuchs \
+            target/aarch64-apple-darwin/release/ablagefuchs target/x86_64-apple-darwin/release/ablagefuchs
+          AF_SKIP_BUILD=1 scripts/bundle-macos.sh
+          cp licenses/* dist/Ablagefuchs.app/Contents/Resources/
+          codesign --force --deep --sign - dist/Ablagefuchs.app
+          mkdir -p pkg
+          ditto -c -k --keepParent dist/Ablagefuchs.app "pkg/Ablagefuchs-${{ steps.version.outputs.version }}-macOS.zip"
+
+      # Zusätzlich ein DMG mit Installationsfenster; die ZIP bleibt für scripts/install-macos.sh
+      - name: macOS-DMG
+        if: matrix.name == 'macOS'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/dmgbuild"
+          "$RUNNER_TEMP/dmgbuild/bin/pip" install --quiet dmgbuild==1.6.5
+          DMG_PYTHON="$RUNNER_TEMP/dmgbuild/bin/python3" scripts/make-dmg.sh \
+            "pkg/Ablagefuchs-${{ steps.version.outputs.version }}-macOS.dmg"
+
+      - name: Windows bauen
+        if: matrix.name == 'Windows'
+        shell: bash
+        run: |
+          cargo build --release -p ablagefuchs -p ablagefuchs-cli
+          DIR="Ablagefuchs-${{ steps.version.outputs.version }}-Windows"
+          mkdir -p "pkg/$DIR"
+          cp target/release/ablagefuchs.exe "pkg/$DIR/Ablagefuchs.exe"
+          cp target/release/ablagefuchs-cli.exe vendor/pdfium/win-x64/bin/pdfium.dll README.md licenses/* "pkg/$DIR/"
+          cd pkg && 7z a -tzip "$DIR.zip" "$DIR" > /dev/null && rm -r "$DIR"
+
+      - name: Linux bauen
+        if: matrix.name == 'Linux'
+        run: |
+          cargo build --release -p ablagefuchs -p ablagefuchs-cli
+          DIR="Ablagefuchs-${{ steps.version.outputs.version }}-Linux-x86_64"
+          mkdir -p "pkg/$DIR"
+          cp target/release/ablagefuchs target/release/ablagefuchs-cli vendor/pdfium/linux-x64/lib/libpdfium.so \
+            assets/ablagefuchs.desktop README.md licenses/* "pkg/$DIR/"
+          cp assets/icon-256.png "pkg/$DIR/ablagefuchs.png"
+          cd pkg && tar czf "$DIR.tar.gz" "$DIR" && rm -r "$DIR"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ablagefuchs-${{ matrix.name }}
+          path: pkg/*
+
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version bestimmen
+        id: version
+        run: echo "version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          path: pkg
+          merge-multiple: true
+      # Release dieser Version samt Tag entfernen, damit der Tag auf den neuen Commit zeigt
+      - name: Alten Release dieser Version entfernen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete "v${{ steps.version.outputs.version }}" --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Ablagefuchs ${{ steps.version.outputs.version }}
+          body: |
+            Builds for macOS (Apple Silicon and Intel, one universal app), Windows (64-bit) and Linux (x86_64).
+
+            **macOS, easiest way** (no Gatekeeper prompt): paste into Terminal
+            ```
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install-macos.sh | bash
+            ```
+            Or open the `.dmg` and drag Ablagefuchs to Applications.
+
+            Built from commit ${{ github.sha }}. Installation notes are in the README.
+          files: pkg/*

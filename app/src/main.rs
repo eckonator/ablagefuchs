@@ -18,6 +18,7 @@ mod settings;
 mod settings_ui;
 mod tags;
 mod theme;
+mod update;
 mod worker;
 
 use std::cell::Cell;
@@ -110,7 +111,10 @@ fn run(
         viewport: egui::ViewportBuilder::default()
             .with_title("Ablagefuchs")
             .with_inner_size(size)
-            .with_min_inner_size([1100.0, 650.0]),
+            .with_min_inner_size([1100.0, 650.0])
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("../../assets/icon-256.png")).unwrap_or_default(),
+            ),
         renderer,
         wgpu_options: wgpu_options(),
         ..Default::default()
