@@ -7,7 +7,7 @@ use eframe::egui::{self, RichText};
 
 use crate::app::{AnalysisState, Entry};
 use crate::i18n::{tr, trf};
-use crate::settings::{GraphicsSetting, LangSetting, Settings, ThemeSetting};
+use crate::settings::{GraphicsSetting, LangSetting, OcrSetting, Settings, ThemeSetting};
 use crate::theme;
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
@@ -142,6 +142,46 @@ fn general(ui: &mut egui::Ui, s: &mut Settings, changed: &mut bool) {
             }
         }
     });
+
+    heading(ui, tr("Texterkennung für Scans"));
+    let native = if cfg!(target_os = "macos") {
+        tr("Automatisch (Apple Vision)")
+    } else if cfg!(windows) {
+        tr("Automatisch (Windows-Texterkennung)")
+    } else {
+        tr("Automatisch (Tesseract)")
+    };
+    ui.horizontal(|ui| {
+        for (v, label) in [
+            (OcrSetting::Auto, native),
+            (OcrSetting::Tesseract, tr("Immer Tesseract")),
+        ] {
+            if ui.radio_value(&mut s.ocr, v, label).changed() {
+                *changed = true;
+            }
+        }
+    });
+    // Verfügbarkeit nur einmal je Auswahl prüfen (Tesseract wäre sonst ein Programmstart pro Bild)
+    let key = egui::Id::new(("ocr-verfuegbar", s.ocr as u8));
+    let available = match ui.data(|d| d.get_temp::<bool>(key)) {
+        Some(a) => a,
+        None => {
+            let a = af_ocr::engine(s.ocr.preference()).is_some();
+            ui.data_mut(|d| d.insert_temp(key, a));
+            a
+        }
+    };
+    if !available {
+        ui.colored_label(
+            theme::warn(ui.ctx()),
+            tr("Keine Texterkennung verfügbar. Bitte Tesseract installieren (z. B. tesseract-ocr und tesseract-ocr-deu)."),
+        );
+    } else {
+        hint(
+            ui,
+            tr("Wird nur für Scans ohne Textebene gebraucht. Ergebnisse werden zwischengespeichert."),
+        );
+    }
 
     heading(ui, tr("Grafik"));
     let auto = if cfg!(windows) {

@@ -27,17 +27,34 @@ pub fn show(ui: &mut egui::Ui, entries: &[Entry], current: Option<usize>, filter
     });
     ui.separator();
     let ctx = ui.ctx().clone();
+    egui::Panel::bottom("dateiliste-fuss").show(ui, |ui| {
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            let (r, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), Sense::hover());
+            ui.painter().circle_filled(r.center(), 3.5, theme::ok(ui.ctx()));
+            ui.label(
+                RichText::new(tr("Ordner wird überwacht – neue Scans erscheinen automatisch"))
+                    .small()
+                    .weak(),
+            );
+        });
+        ui.add_space(4.0);
+    });
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         for (i, e) in entries.iter().enumerate().filter(|(_, e)| filter.matches(e)) {
             let selected = current == Some(i);
-            let (icon, color) = if !e.is_open() {
+            let (icon, color) = if e.gone {
+                ("✕", theme::muted(&ctx))
+            } else if !e.is_open() {
                 ("✔", theme::ok(&ctx))
             } else if e.needs_check() {
                 ("⚠", theme::warn(&ctx))
             } else {
                 ("○", theme::muted(&ctx))
             };
-            let sub = if !e.is_open() {
+            let sub = if e.gone {
+                tr("nicht mehr vorhanden").to_string()
+            } else if !e.is_open() {
                 e.file_name()
             } else {
                 match &e.analysis {
@@ -67,10 +84,10 @@ pub fn show(ui: &mut egui::Ui, entries: &[Entry], current: Option<usize>, filter
                             let name = if e.is_open() { name } else { name.strikethrough().weak() };
                             ui.add(egui::Label::new(name).truncate());
                             let sub = RichText::new(sub).size(11.5);
-                            let sub = if e.is_open() {
-                                sub.weak()
-                            } else {
+                            let sub = if e.done.is_some() {
                                 sub.color(theme::ok(&ctx))
+                            } else {
+                                sub.weak()
                             };
                             ui.add(egui::Label::new(sub).truncate());
                         });

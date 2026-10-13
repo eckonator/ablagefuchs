@@ -374,6 +374,109 @@ pub fn write_all(dir: &Path) -> anyhow::Result<()> {
         save(pages, &path)?;
         println!("{}", path.display());
     }
+    // Ein echter „Scan“: Brief als Bild ohne Textebene, damit die Texterkennung etwas zu tun hat
+    let path = dir.join("scan_20261002_0008.pdf");
+    scanned(scan_letter(), &path)?;
+    println!("{}", path.display());
+    Ok(())
+}
+
+/// Beitragsrechnung einer Kfz-Versicherung, wird nur als Bild abgelegt.
+fn scan_letter() -> Page {
+    let mut p = letter(
+        "Kfz-Versicherung Nord",
+        18.0,
+        &["Hafenstraße 9", "20457 Hamburg"],
+        &[
+            "Versicherungsschein: KV-1188-42",
+            "Rechnungsnummer: BR-2026-7781",
+            "Hamburg, 05.10.2026",
+        ],
+    );
+    p.text(LEFT, 310.0, 13.0, true, "Ihre Beitragsrechnung für das Jahr 2027");
+    let y = p.para(
+        340.0,
+        &[
+            "Sehr geehrter Herr Beispiel,",
+            "",
+            "für Ihren Pkw MS-AB 123 berechnen wir folgende Beiträge:",
+        ],
+    );
+    let y = p.table(
+        y,
+        &[
+            ("Haftpflicht", "312,40 €"),
+            ("Vollkasko", "298,10 €"),
+            ("Versicherungsteuer 19 %", "116,00 €"),
+            ("Gesamtbetrag", "726,50 €"),
+        ],
+        true,
+    );
+    p.para(
+        y,
+        &[
+            "Der Betrag ist zahlbar bis zum 01.01.2027.",
+            "",
+            "Mit freundlichen Grüßen",
+            "Ihre Kfz-Versicherung Nord",
+        ],
+    );
+    footer(&mut p, "Kfz-Versicherung Nord AG · Hafenstraße 9 · 20457 Hamburg", 1, 1);
+    p
+}
+
+/// Rendert die Seite mit pdfium als Graustufenbild (200 dpi) und legt nur das Bild in ein neues PDF.
+fn scanned(page: Page, path: &Path) -> anyhow::Result<()> {
+    let tmp = path.with_extension("text.pdf");
+    save(vec![page], &tmp)?;
+    let rendered = af_pdf::render_page(&tmp, 0, 1654);
+    std::fs::remove_file(&tmp)?;
+    let img = rendered?;
+    // Graustufen mit leichtem Papierton, wie ein Scanner sie liefert
+    let gray: Vec<u8> = img
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|px| {
+            let l = (u32::from(px[0]) * 30 + u32::from(px[1]) * 59 + u32::from(px[2]) * 11) / 100;
+            (l as u8).min(246)
+        })
+        .collect();
+    let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut z, &gray)?;
+    let data = z.finish()?;
+
+    let mut doc = Document::with_version("1.7");
+    let pages_id = doc.new_object_id();
+    let image = doc.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Image", "Width" => img.width as i64, "Height" => img.height as i64,
+            "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8, "Filter" => "FlateDecode",
+        },
+        data,
+    ));
+    let content = Content {
+        operations: vec![
+            Operation::new("q", vec![]),
+            Operation::new("cm", vec![W.into(), 0.into(), 0.into(), H.into(), 0.into(), 0.into()]),
+            Operation::new("Do", vec!["Scan".into()]),
+            Operation::new("Q", vec![]),
+        ],
+    };
+    let stream = doc.add_object(Stream::new(dictionary! {}, content.encode()?));
+    let resources = doc.add_object(dictionary! { "XObject" => dictionary! { "Scan" => image } });
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page", "Parent" => pages_id, "Contents" => stream, "Resources" => resources,
+        "MediaBox" => vec![0.into(), 0.into(), W.into(), H.into()],
+    });
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! { "Type" => "Pages", "Count" => 1, "Kids" => vec![page_id.into()] }),
+    );
+    let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog);
+    doc.save(path)?;
     Ok(())
 }
 

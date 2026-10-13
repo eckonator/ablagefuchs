@@ -131,7 +131,7 @@ ablagefuchs/
 | Muster | `regex` | MIT/Apache | |
 | Unscharfer Vergleich | `strsim` | MIT | Firmennamen trotz OCR-Fehlern finden |
 | Serialisierung | `serde`, `serde_json` | MIT/Apache | Einstellungen, Wissen, Journal (JSONL) |
-| Ordner überwachen | `notify` | CC0/MIT/Apache | |
+| Ordner überwachen | (keine Bibliothek) | – | Abfrage alle 2 s statt Dateisystem-Ereignissen: auf NAS-Freigaben (SMB) zuverlässiger, siehe §10 |
 | Dateidialog | `rfd` | MIT | |
 | Pfade | `dirs` | MIT/Apache | |
 | Hash (Duplikate) | `blake3` | CC0/Apache | |
@@ -506,14 +506,17 @@ pub trait OcrEngine: Send + Sync {
 | Windows | **Windows.Media.Ocr** | eingebaut, braucht das deutsche Sprachpaket (sonst Hinweis mit Link zu den Einstellungen) |
 | Linux | **Tesseract** (`tesseract … tsv`) | Hinweis zum Installieren, falls nicht vorhanden (`apt install tesseract-ocr tesseract-ocr-deu`) |
 
-- **Auflösung:** OCR läuft auf 300-dpi-Renderings von Seite 1 (und 2, falls Seite 1 wenig Text hat).
+- **Auflösung:** OCR läuft auf 300-dpi-Renderings der ersten beiden Seiten, wenn Seite 1 weniger als 30 Zeichen Text hat.
+- **Cache:** Ergebnisse der Texterkennung liegen im Cache-Ordner des Systems unter `Ablagefuchs/ocr/v1/<BLAKE3>.json` (Schlüssel = Dateiinhalt, übersteht Umbenennen).
+- **Fettdruck:** OCR kennt keinen Fettdruck; die Betreffzeile wird deshalb auch über größere Schrift als der Fließtext erkannt.
+- **Apple Vision:** Beim allerersten Lauf einer neuen Programmversion bereitet macOS das Modell vor (~25 s, einmalig), danach ~1 s pro Seite.
 - **Schiefe Scans:** einfache Schräglagenkorrektur nur, wenn die Engine sie nicht selbst macht (Vision und Windows tun es).
 
 ---
 
 ## 10. Dateioperationen und Sicherheit
 
-- **Stabilität:** neue Dateien erst, wenn Größe und `mtime` 2 s unverändert sind und die Datei zum Lesen geöffnet werden kann.
+- **Stabilität:** neue Dateien erst, wenn Größe und `mtime` zwischen zwei Abfragen (2 s) gleich bleiben. Ändert sich eine angezeigte, noch offene Datei danach doch (Scanner schreibt mit Pause weiter, Datei ersetzt), wird sie automatisch neu gelesen. Von außen gelöschte Dateien erscheinen als „nicht mehr vorhanden“.
 - **Kein Überschreiben:** Kollisionen bekommen `_2`, `_3` …. Vor dem Umbenennen wird erneut geprüft (falls jemand parallel arbeitet).
 - **Verschieben auf ein anderes Laufwerk:** kopieren, BLAKE3-Hash vergleichen, erst dann löschen.
 - **Rückgängig:**

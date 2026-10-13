@@ -11,6 +11,7 @@ publish = false
 [dependencies]
 af-core.workspace = true
 af-pdf.workspace = true
+af-ocr.workspace = true
 log.workspace = true
 env_logger.workspace = true
 serde.workspace = true
@@ -20,3 +21,5 @@ eframe = { version = "0.36", features = ["glow"] }
 rfd = "0.17"
 dirs = "7"
 sys-locale = "0.3"
+# „pure“: ohne C/Assembler, baut damit überall gleich (auch beim Gegencheck für Windows auf dem Mac)
+blake3 = { version = "1", features = ["pure"] }

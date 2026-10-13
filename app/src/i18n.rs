@@ -148,6 +148,29 @@ fn en(de: &str) -> Option<&'static str> {
         "Leerzeichen" => "Spaces",
         "Leistungsdatum" => "service date",
         "Markierungen" => "Highlights",
+        "Ordner wird überwacht – neue Scans erscheinen automatisch" => {
+            "Watching folder – new scans appear automatically"
+        }
+        "nicht mehr vorhanden" => "no longer present",
+        "Kein Text" => "No text",
+        "Nichts erkannt (Foto, Handschrift oder leere Seite?)" => {
+            "Nothing recognized (photo, handwriting or blank page?)"
+        }
+        "Nichts erkannt. Für Scans wird Tesseract benötigt (tesseract-ocr, tesseract-ocr-deu)." => {
+            "Nothing recognized. Scans need Tesseract (tesseract-ocr, tesseract-ocr-deu)."
+        }
+        "Texterkennung: {} · Sicherheit {} %" => "Text recognition: {} · confidence {} %",
+        "Automatisch (Apple Vision)" => "Automatic (Apple Vision)",
+        "Automatisch (Tesseract)" => "Automatic (Tesseract)",
+        "Automatisch (Windows-Texterkennung)" => "Automatic (Windows OCR)",
+        "Immer Tesseract" => "Always Tesseract",
+        "Keine Texterkennung verfügbar. Bitte Tesseract installieren (z. B. tesseract-ocr und tesseract-ocr-deu)." => {
+            "No text recognition available. Please install Tesseract (e.g. tesseract-ocr and tesseract-ocr-deu)."
+        }
+        "Texterkennung für Scans" => "Text recognition for scans",
+        "Wird nur für Scans ohne Textebene gebraucht. Ergebnisse werden zwischengespeichert." => {
+            "Only needed for scans without a text layer. Results are cached."
+        }
         "Lizenz" => "License",
         "Lizenziert unter MIT oder Apache-2.0, nach Wahl." => "Licensed under MIT or Apache-2.0, at your option.",
         "Logdatei anzeigen" => "Show log file",

@@ -11,6 +11,7 @@ publish = false
 [dependencies]
 af-core.workspace = true
 af-pdf.workspace = true
+af-ocr.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 serde.workspace = true

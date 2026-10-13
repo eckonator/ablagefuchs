@@ -14,8 +14,8 @@ use serde::Serialize;
 
 const USAGE: &str = "\
 Aufruf:
-  ablagefuchs-cli suggest [--json | --names] <datei.pdf | ordner> …
-      Namensvorschlag mit Sicherheit und Herkunft je Feld
+  ablagefuchs-cli suggest [--json | --names] [--tesseract] <datei.pdf | ordner> …
+      Namensvorschlag mit Sicherheit und Herkunft je Feld (Scans ohne Text per Texterkennung)
   ablagefuchs-cli text [--json] <datei.pdf>
       erkannter Text als Zeilen mit Zone und Schrift (Fehlersuche)
   ablagefuchs-cli pages <datei.pdf>
@@ -66,7 +66,12 @@ fn run(args: &[String]) -> anyhow::Result<()> {
             } else {
                 Output::Human
             };
-            suggest(&paths, mode)
+            let ocr = if flags.contains(&"--tesseract") {
+                af_ocr::Preference::Tesseract
+            } else {
+                af_ocr::Preference::Auto
+            };
+            suggest(&paths, mode, ocr)
         }
         _ => {
             eprintln!("{USAGE}");
@@ -91,15 +96,19 @@ struct FileSuggestion {
     suggestion: Suggestion,
 }
 
-fn suggest(paths: &[PathBuf], mode: Output) -> anyhow::Result<()> {
+fn suggest(paths: &[PathBuf], mode: Output, ocr_pref: af_ocr::Preference) -> anyhow::Result<()> {
     let template = Template::parse(DEFAULT_TEMPLATE)?;
     let opts = NamingOptions::default();
     let mut results = Vec::new();
     for file in collect_pdfs(paths)? {
-        let pages = af_pdf::extract_text(&file, ANALYZE_PAGES)?;
+        let (pages, source) = af_ocr::read_text(&file, ANALYZE_PAGES, ocr_pref)?;
+        let ocr_quality = match &source {
+            af_core::TextSource::Ocr { mean_confidence, .. } => Some(*mean_confidence),
+            af_core::TextSource::Embedded => None,
+        };
         let ctx = Context {
             reference_date: modified_date(&file),
-            ocr_quality: None,
+            ocr_quality,
         };
         let suggestion = af_core::analyze(&pages, &ctx);
         let name = template.file_name(&suggestion.fields(), &opts);
@@ -176,7 +185,7 @@ fn describe(source: &Source) -> String {
 }
 
 fn text(path: &Path, json: bool) -> anyhow::Result<()> {
-    let pages = af_pdf::extract_text(path, usize::MAX)?;
+    let (pages, _) = af_ocr::read_text(path, usize::MAX, af_ocr::Preference::Auto)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&pages)?);
         return Ok(());
