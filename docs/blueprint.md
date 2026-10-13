@@ -274,6 +274,7 @@ Datei `wissen.json` im Einstellungsordner, menschenlesbar:
 }
 ```
 
+- **Datenschutz:** Lernen läuft ausschließlich lokal in der App (fester Rust-Code, kein Netzwerk, keine KI); `wissen.json` verlässt den Rechner nie. Entwickelt und getestet wird nur mit fiktiven Demo-Daten (`cargo xtask demo-archiv`).
 - **Aus dem Archiv lernen** (Einstellungen → Gelerntes Wissen):
   1. Ordner rekursiv durchgehen und Dateinamen mit der aktuellen Vorlage zurückparsen (deshalb `_-_`)
   2. Text der ersten Seite lesen (keine OCR, nur vorhandene Textebene; OCR optional und langsam)

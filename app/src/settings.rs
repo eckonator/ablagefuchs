@@ -74,6 +74,14 @@ pub struct Settings {
     /// Fundstellen in der Vorschau farbig markieren
     pub show_highlights: bool,
     pub zoom: f32,
+    /// Ab dieser Sicherheit (jedes Feld) gilt ein Vorschlag als sicher: kein „Prüfen“, Stapelmodus erlaubt
+    pub threshold: u8,
+    /// Beim Umbenennen aus den bestätigten Feldern lernen
+    pub learn_from_corrections: bool,
+    /// Ordner, aus dem zuletzt gelernt wurde
+    pub learn_folder: Option<PathBuf>,
+    /// Beim Lernen aus einem Ordner auch Scans ohne Textebene lesen (langsam)
+    pub learn_with_ocr: bool,
 }
 
 impl Default for Settings {
@@ -92,6 +100,10 @@ impl Default for Settings {
             recent_inboxes: Vec::new(),
             show_file_list: true,
             show_highlights: true,
+            threshold: 90,
+            learn_from_corrections: true,
+            learn_folder: None,
+            learn_with_ocr: false,
             zoom: 1.0,
         }
     }
@@ -99,6 +111,11 @@ impl Default for Settings {
 
 pub fn config_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join(APP_DIR))
+}
+
+/// Gelerntes Wissen; liegt nur hier, nie im Projekt oder anderswo.
+pub fn knowledge_path() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("wissen.json"))
 }
 
 fn settings_path() -> Option<PathBuf> {

@@ -2,6 +2,7 @@
 //! Texterkennung (OCR) für Seiten ohne Textebene (Bauplan §9). Je System die eingebaute Engine:
 //! Apple Vision (macOS), Windows.Media.Ocr (Windows), sonst Tesseract als externes Programm.
 
+pub mod archive;
 mod tesseract;
 #[cfg(target_os = "macos")]
 mod vision;

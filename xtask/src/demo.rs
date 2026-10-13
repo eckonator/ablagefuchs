@@ -533,3 +533,111 @@ fn win_ansi(s: &str) -> Vec<u8> {
         })
         .collect()
 }
+
+/// Ein Brief für das Demo-Archiv.
+struct ArchiveLetter {
+    path: &'static str,
+    company: &'static str,
+    address: &'static [&'static str],
+    info: &'static [&'static str],
+    subject: &'static str,
+    items: &'static [(&'static str, &'static str)],
+    footer: &'static str,
+}
+
+/// Fiktives Archiv, wie es nach einiger Zeit mit Ablagefuchs aussehen könnte: Unterordner in mehreren Ebenen,
+/// Dateinamen nach der Standardvorlage in der Schreibweise des Nutzers („NetzWelt“) und eine alte Datei,
+/// die nicht zur Vorlage passt.
+pub fn write_archive(dir: &Path) -> anyhow::Result<()> {
+    const NETZWELT: &str = "NetzWelt Kommunikation GmbH · USt-IdNr. DE987654321 · netzwelt.example";
+    const STADTWERKE: &str = "Stadtwerke Musterstadt GmbH · USt-IdNr. DE123456789";
+    let letters = [
+        ArchiveLetter {
+            path: "2025/NetzWelt/2025-08-01_NetzWelt_-_Mobilfunk_Juli_Rechnung.pdf",
+            company: "NetzWelt Kommunikation GmbH",
+            address: &["Kundenservice: 0800 123 456", "netzwelt.example"],
+            info: &["Rechnung vom 01.08.2025", "Rechnungsnummer: RN-2025-08-112"],
+            subject: "Ihre Rechnung für Mobilfunk",
+            items: &[("Tarif NetzWelt Unlimited M", "25,20 €"), ("Gesamtbetrag", "29,99 €")],
+            footer: NETZWELT,
+        },
+        ArchiveLetter {
+            path: "2025/NetzWelt/2025-09-01_NetzWelt_-_Mobilfunk_August_Rechnung.pdf",
+            company: "NetzWelt Kommunikation GmbH",
+            address: &["Kundenservice: 0800 123 456", "netzwelt.example"],
+            info: &["Rechnung vom 01.09.2025", "Rechnungsnummer: RN-2025-09-087"],
+            subject: "Ihre Rechnung für Mobilfunk",
+            items: &[("Tarif NetzWelt Unlimited M", "25,20 €"), ("Gesamtbetrag", "29,99 €")],
+            footer: NETZWELT,
+        },
+        ArchiveLetter {
+            path: "2025/Wohnen/Strom/2025-09-26_Stadtwerke_Musterstadt_-_Jahresabrechnung_Strom_Rechnung.pdf",
+            company: "Stadtwerke Musterstadt",
+            address: &["Stadtwerke Musterstadt GmbH", "Werkstraße 4", "76131 Musterstadt"],
+            info: &["Rechnungsnummer: 2025-771203", "Datum: 26.09.2025"],
+            subject: "Jahresabrechnung Strom 2024/2025",
+            items: &[
+                ("Arbeitspreis Strom", "741,10 €"),
+                ("Rechnungsbetrag (inkl. 19 % USt)", "38,20 €"),
+            ],
+            footer: STADTWERKE,
+        },
+        ArchiveLetter {
+            path: "2025/Wohnen/Strom/Abschlag/2025-11-03_Stadtwerke_Musterstadt_-_Abschlagsaenderung.pdf",
+            company: "Stadtwerke Musterstadt",
+            address: &["Stadtwerke Musterstadt GmbH", "Werkstraße 4", "76131 Musterstadt"],
+            info: &["Datum: 03.11.2025"],
+            subject: "Änderung Ihres Abschlags",
+            items: &[("Neuer monatlicher Abschlag", "75,00 €")],
+            footer: STADTWERKE,
+        },
+        ArchiveLetter {
+            path: "2024/Steuer/2024-10-02_Finanzamt_Musterstadt_-_Einkommensteuerbescheid_2023.pdf",
+            company: "Finanzamt Musterstadt",
+            address: &["Schlossplatz 1", "76131 Musterstadt"],
+            info: &["Steuernummer 35/123/45678", "Datum 02.10.2024"],
+            subject: "Bescheid für 2023 über Einkommensteuer",
+            items: &[("festgesetzt werden", "7.902,00 €")],
+            footer: "Finanzamt Musterstadt",
+        },
+        ArchiveLetter {
+            path: "2025/Versicherungen/Krankenkasse/2025-02-10_Krankenkasse_Sued_-_Beitragsbescheinigung_2024.pdf",
+            company: "Krankenkasse Süd",
+            address: &["Postfach 10 20 30", "70100 Stuttgart"],
+            info: &["Stuttgart, 10. Februar 2025"],
+            subject: "Beitragsbescheinigung für das Jahr 2024",
+            items: &[("Krankenversicherung", "4.611,20 €")],
+            footer: "Krankenkasse Süd · Körperschaft des öffentlichen Rechts",
+        },
+        ArchiveLetter {
+            path: "2025/Wohnen/2025-09-15_Hausverwaltung_Lindner_-_Nebenkostenabrechnung_2024.pdf",
+            company: "Hausverwaltung Lindner",
+            address: &["Bahnhofstraße 22", "76137 Musterstadt"],
+            info: &["Musterstadt, 15.09.2025"],
+            subject: "Nebenkostenabrechnung für das Jahr 2024",
+            items: &[("Nachzahlung", "88,10 €")],
+            footer: "Hausverwaltung Lindner · Bahnhofstraße 22 · 76137 Musterstadt",
+        },
+        ArchiveLetter {
+            path: "alt/Scan vom März 2019.pdf",
+            company: "Irgendwer GmbH",
+            address: &["Weg 1", "12345 Ort"],
+            info: &["Datum: 01.03.2019"],
+            subject: "Alter Brief",
+            items: &[],
+            footer: "Irgendwer GmbH",
+        },
+    ];
+    for l in letters {
+        let mut p = letter(l.company, 18.0, l.address, l.info);
+        p.text(LEFT, 310.0, 12.0, true, l.subject);
+        let y = p.para(340.0, &["Sehr geehrter Herr Beispiel,"]);
+        p.table(y, l.items, true);
+        footer(&mut p, l.footer, 1, 1);
+        let path = dir.join(l.path);
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        save(vec![p], &path)?;
+        println!("{}", path.display());
+    }
+    Ok(())
+}

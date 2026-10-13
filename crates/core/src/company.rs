@@ -27,6 +27,23 @@ static ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
+/// Anrede- und Empfängerzeilen gehören zum Anschriftenfeld, nicht zum Absender.
+static RECIPIENT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^(herrn?|frau|familie|eheleute|an|z\.\s?hd\.?)(\s|$)").unwrap());
+
+/// Plausibler Text für Namen und Themen: mindestens drei verschiedene Buchstaben
+/// (filtert Texterkennungs-Unsinn wie „VVVVVVVVI“ aus Handschrift oder Linien).
+pub fn plausible(text: &str) -> bool {
+    let mut letters: Vec<char> = text
+        .chars()
+        .filter(|c| c.is_alphabetic())
+        .flat_map(char::to_lowercase)
+        .collect();
+    letters.sort_unstable();
+    letters.dedup();
+    letters.len() >= 3
+}
+
 /// Rechtsformen am Ende, die im Dateinamen stören („NetzWelt Kommunikation GmbH“ → „NetzWelt Kommunikation“).
 static LEGAL_FORM: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -54,7 +71,7 @@ pub fn detect(layout: &Layout) -> Option<CompanyResult> {
         .lines
         .iter()
         .filter(|l| l.page == 1 && l.zone == Zone::Header)
-        .filter(|l| !ADDRESS.is_match(&l.text) && l.text.chars().filter(|c| c.is_alphabetic()).count() >= 3)
+        .filter(|l| !ADDRESS.is_match(&l.text) && !RECIPIENT.is_match(&l.text) && plausible(&l.text))
         .map(|l| {
             let mut score = l.font_size * 2.0;
             if l.bold {

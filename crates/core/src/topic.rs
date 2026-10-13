@@ -107,7 +107,7 @@ fn from_subject(layout: &Layout) -> Option<TopicResult> {
             && ((l.bold && l.font_size >= body * 0.95) || l.font_size >= body * 1.1 || BETREFF.is_match(&l.text))
     })?;
     let (text, transformed) = normalize(&line.text);
-    let text = text?;
+    let text = text.filter(|t| crate::company::plausible(t))?;
     Some(TopicResult {
         text,
         confidence: if transformed { 85 } else { 80 },
@@ -164,7 +164,7 @@ fn from_line_item(layout: &Layout) -> Option<TopicResult> {
         let label = LEADING_DATE.replace(&line.text, "");
         let label = TRAILING_PARENS.replace(&label, "").trim().to_string();
         let lower = label.to_lowercase();
-        if label.is_empty() || NOT_ITEMS.iter().any(|w| lower.contains(w)) {
+        if label.is_empty() || !crate::company::plausible(&label) || NOT_ITEMS.iter().any(|w| lower.contains(w)) {
             continue;
         }
         let text = label.split_whitespace().take(MAX_WORDS).collect::<Vec<_>>().join(" ");

@@ -18,6 +18,7 @@ fn demo_documents_get_expected_names() {
     let ctx = Context {
         reference_date: NaiveDate::from_ymd_opt(2026, 10, 13),
         ocr_quality: None,
+        knowledge: None,
     };
     for line in EXPECTED.lines().chain(EXPECTED_OCR.lines()) {
         let (pdf, expected) = line.split_once('\t').unwrap();
@@ -51,6 +52,7 @@ fn uncertain_cases_are_flagged() {
     let ctx = Context {
         reference_date: NaiveDate::from_ymd_opt(2026, 10, 13),
         ocr_quality: None,
+        knowledge: None,
     };
     let load = |n: u8| -> Vec<PageText> {
         let f = format!(

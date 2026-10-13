@@ -197,6 +197,20 @@ pub fn show(
         );
         take_focus(&resp, focus, FieldFocus::Thema);
         autocomplete(ui, &resp, &mut e.fields.thema, c.topics, FieldFocus::Thema.id());
+        if let Some(s) = s
+            && !s.known_topics.is_empty()
+        {
+            ui.horizontal_wrapped(|ui| {
+                for t in s.known_topics.iter().take(5) {
+                    if ui
+                        .selectable_label(&e.fields.thema == t, RichText::new(t).small())
+                        .clicked()
+                    {
+                        actions.push(Action::SetTopic(t.clone()));
+                    }
+                }
+            });
+        }
         if let Some(s) = s {
             source_line(ui, &s.thema.source);
         }
@@ -404,6 +418,18 @@ pub fn describe(source: &Source) -> String {
         Source::Topic(TopicSource::SubjectLine) => tr("Aus der Betreffzeile").into(),
         Source::Topic(TopicSource::LineItem) => tr("Aus der ersten Rechnungsposition").into(),
         Source::InvoiceSignals(s) if s.is_empty() => tr("Keine Rechnungsmerkmale gefunden").into(),
+        Source::Knowledge {
+            kennung: Some(k),
+            dokumente,
+        } => trf(
+            "Gelernt über {} ({} Dokumente)",
+            &[&crate::settings_ui::id_label(*k), dokumente],
+        ),
+        Source::Knowledge {
+            kennung: None,
+            dokumente,
+        } => trf("Gelernt über den Namen im Briefkopf ({} Dokumente)", &[dokumente]),
+        Source::KnownTopic { anzahl } => trf("Häufigstes Thema dieses Absenders ({}×)", &[anzahl]),
         Source::InvoiceSignals(s) => {
             let list = s.iter().map(|w| format!("„{w}“")).collect::<Vec<_>>().join(", ");
             trf("Gefunden: {}", &[&list])

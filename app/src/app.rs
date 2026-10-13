@@ -17,10 +17,19 @@ use crate::settings_ui::SettingsUi;
 use crate::worker::{Analysis, Done, Job, Worker};
 use crate::{file_list, form, preview, settings, settings_ui, theme};
 
-/// Ab dieser Sicherheit (jedes Feld) gilt ein Vorschlag als sicher; darunter „Prüfen“.
-pub const THRESHOLD: u8 = 90;
-/// So viele Dateien nach der aktuellen werden im Voraus erkannt.
-const PREFETCH: usize = 3;
+/// Ab dieser Sicherheit (jedes Feld) gilt ein Vorschlag als sicher; darunter „Prüfen“ (Einstellung).
+static THRESHOLD: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(90);
+
+pub fn threshold() -> u8 {
+    THRESHOLD.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn set_threshold(t: u8) {
+    THRESHOLD.store(t.clamp(50, 100), std::sync::atomic::Ordering::Relaxed);
+}
+/// Höchstens so viele Erkennungen gleichzeitig in der Warteschlange: alle offenen Dateien werden nach und
+/// nach im Hintergrund erkannt (für Filter und Stapelmodus), die aktuelle wartet aber nie lange.
+const MAX_PENDING: usize = 2;
 
 pub enum AnalysisState {
     Missing,
@@ -56,6 +65,8 @@ pub struct Entry {
     pub gone: bool,
     /// Größe und Änderungszeit beim letzten Lesen: ändern sie sich, wird neu gelesen
     file_state: FileState,
+    /// Stand des Wissens bei der Erkennung (ändert es sich, werden unbearbeitete Dateien neu erkannt)
+    analyzed_rev: u64,
 }
 
 type FileState = (u64, Option<std::time::SystemTime>);
@@ -87,7 +98,7 @@ impl Entry {
     pub fn needs_check(&self) -> bool {
         self.is_open()
             && match &self.analysis {
-                AnalysisState::Ready(a) => !a.suggestion.is_complete() || a.suggestion.min_confidence() < THRESHOLD,
+                AnalysisState::Ready(a) => !a.suggestion.is_complete() || a.suggestion.min_confidence() < threshold(),
                 AnalysisState::Failed(_) => true,
                 _ => false,
             }
@@ -148,6 +159,17 @@ pub enum Action {
     ApplySelection(FieldFocus),
     CloseSelection,
     ToggleHighlights,
+    /// Stapelmodus: alle sicheren Vorschläge umbenennen
+    Batch,
+    /// Lernen aus dem gewählten Ordner starten (rekursiv)
+    StartLearning,
+    CancelLearning,
+    /// Ein gelerntes Unternehmen vergessen
+    ForgetCompany(usize),
+    /// Gesamtes Wissen löschen
+    ForgetKnowledge,
+    /// Thema aus den bekannten Themen übernehmen
+    SetTopic(String),
 }
 
 /// Ausgewählter Text aus der Vorschau, der als Feld übernommen werden kann.
@@ -197,8 +219,16 @@ pub struct App {
     pub template: Result<Template, TemplateError>,
     settings_ui: SettingsUi,
     toast: Option<Toast>,
-    /// (Eintrag, Journal-Nummer) in Reihenfolge der Umbenennungen dieser Sitzung
-    undo_stack: Vec<(usize, u64)>,
+    /// Umbenennungen dieser Sitzung als Gruppen (Stapelmodus = eine Gruppe): (Eintrag, Journal-Nummer)
+    undo_stack: Vec<Vec<(usize, u64)>>,
+    /// Gelerntes Wissen; geteilt mit dem Analyse-Thread
+    pub knowledge: std::sync::Arc<af_core::knowledge::Knowledge>,
+    knowledge_rev: u64,
+    knowledge_file: Option<PathBuf>,
+    learning: Option<crate::learning::LearnJob>,
+    /// Korrekturen, die während des Lernens aus einem Ordner anfallen (werden danach nachgetragen)
+    pending_corrections: Vec<(NameFields, af_core::LearnInfo, Option<String>)>,
+    pub last_learn: Option<af_ocr::archive::LearnStats>,
     focus: Option<FieldFocus>,
     preview_width: f32,
     /// Ordnerüberwachung: Zeitpunkt der letzten Prüfung und neue Dateien, die noch geschrieben werden könnten
@@ -234,6 +264,12 @@ impl App {
             settings_ui: SettingsUi::default(),
             toast: None,
             undo_stack: Vec::new(),
+            knowledge: std::sync::Arc::new(af_core::knowledge::Knowledge::default()),
+            knowledge_rev: 1,
+            knowledge_file: None,
+            learning: None,
+            pending_corrections: Vec::new(),
+            last_learn: None,
             focus: None,
             preview_width: 600.0,
             last_poll: 0.0,
@@ -243,6 +279,19 @@ impl App {
             settings,
             dev,
         };
+        set_threshold(app.settings.threshold);
+        // Wissen: im Normalbetrieb aus dem Einstellungsordner, bei Entwicklerläufen nur mit AF_WISSEN
+        app.knowledge_file = if persist {
+            settings::knowledge_path()
+        } else {
+            std::env::var_os("AF_WISSEN").map(PathBuf::from)
+        };
+        if let Some(path) = &app.knowledge_file {
+            match af_core::knowledge::Knowledge::load(path) {
+                Ok(k) => app.knowledge = std::sync::Arc::new(k),
+                Err(err) => log::error!("Wissen nicht lesbar ({}): {err}", path.display()),
+            }
+        }
         if let Some(page) = app.dev.settings_page.clone() {
             app.settings_ui.open_page(&page, &app.settings);
         }
@@ -322,6 +371,7 @@ impl App {
             preview: None,
             render_pending: None,
             gone: false,
+            analyzed_rev: 0,
             file_state: file_state(&path),
             path,
         }
@@ -469,20 +519,36 @@ impl App {
         let Some(cur) = self.current else { return };
         let n = self.entries.len();
         let mut wanted = vec![cur];
-        wanted.extend(
-            (1..n)
-                .map(|k| (cur + k) % n)
-                .filter(|&i| self.entries[i].is_open())
-                .take(PREFETCH),
-        );
+        wanted.extend((1..n).map(|k| (cur + k) % n).filter(|&i| self.entries[i].is_open()));
+        // Neues Wissen: Dateien, deren Vorschlag der Nutzer nicht verändert hat, neu erkennen
+        for e in &mut self.entries {
+            if e.is_open() && e.analyzed_rev != 0 && e.analyzed_rev != self.knowledge_rev {
+                let untouched = match &e.analysis {
+                    AnalysisState::Ready(a) => a.suggestion.fields() == e.fields,
+                    _ => false,
+                };
+                if untouched {
+                    e.analysis = AnalysisState::Missing;
+                }
+                e.analyzed_rev = 0;
+            }
+        }
+        let mut pending = self
+            .entries
+            .iter()
+            .filter(|e| matches!(e.analysis, AnalysisState::Pending))
+            .count();
         for i in wanted {
             let e = &mut self.entries[i];
-            if matches!(e.analysis, AnalysisState::Missing) {
+            if matches!(e.analysis, AnalysisState::Missing) && (i == cur || pending < MAX_PENDING) {
+                pending += 1;
                 e.analysis = AnalysisState::Pending;
+                e.analyzed_rev = self.knowledge_rev;
                 self.worker.send(Job::Analyze {
                     id: e.id,
                     path: e.path.clone(),
                     ocr: self.settings.ocr.preference(),
+                    knowledge: std::sync::Arc::clone(&self.knowledge),
                 });
             }
         }
@@ -524,32 +590,154 @@ impl App {
             );
             return;
         };
-        let e = &self.entries[i];
-        if !e.is_open() || e.fields.datum.is_none() || e.fields.unternehmen.trim().is_empty() {
-            return;
-        }
-        let name = template.file_name(&e.fields, &self.settings.naming);
-        let target_dir = self.target_dir(&e.path, &e.fields);
-        let Some(journal) = &self.journal else { return };
-        match journal.rename(&e.path, &target_dir, &name) {
-            Ok(entry) => {
-                let new_name = entry
-                    .nach
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                let e = &mut self.entries[i];
-                e.path = entry.nach.clone();
-                e.done = Some(Some(entry.id));
-                self.undo_stack.push((i, entry.id));
+        let template = template.clone();
+        match self.rename_entry(i, &template) {
+            Some(Ok((new_name, id))) => {
+                self.undo_stack.push(vec![(i, id)]);
                 self.show_info(ctx, trf("Umbenannt → {}", &[&new_name]), true);
                 match self.next_open_after(i) {
                     Some(next) => self.current = Some(next),
                     None => self.show_info(ctx, tr("Alle Dateien sind erledigt.").into(), true),
                 }
             }
-            Err(err) => self.show_error(trf("Umbenennen fehlgeschlagen: {}", &[&err])),
+            Some(Err(err)) => self.show_error(trf("Umbenennen fehlgeschlagen: {}", &[&err])),
+            None => {}
         }
+    }
+
+    /// Benennt einen Eintrag um, protokolliert es und lernt aus den bestätigten Feldern.
+    /// `None`, wenn der Eintrag nicht bereit ist (erledigt, Datum oder Unternehmen fehlt).
+    fn rename_entry(&mut self, i: usize, template: &Template) -> Option<Result<(String, u64), std::io::Error>> {
+        let e = &self.entries[i];
+        if !e.is_open() || e.fields.datum.is_none() || e.fields.unternehmen.trim().is_empty() {
+            return None;
+        }
+        let name = template.file_name(&e.fields, &self.settings.naming);
+        let target_dir = self.target_dir(&e.path, &e.fields);
+        let journal = self.journal.as_ref()?;
+        let entry = match journal.rename(&e.path, &target_dir, &name) {
+            Ok(entry) => entry,
+            Err(err) => return Some(Err(err)),
+        };
+        let new_name = entry
+            .nach
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        // Lernen: bestätigte Felder, Kennungen und Briefkopf dieses Dokuments
+        if self.settings.learn_from_corrections
+            && let Some(s) = e.suggestion()
+        {
+            let replaced = (s.unternehmen.value != e.fields.unternehmen && !s.unternehmen.value.is_empty())
+                .then(|| s.unternehmen.value.clone());
+            let item = (e.fields.clone(), s.learn.clone(), replaced);
+            self.learn_correction(item);
+        }
+        let e = &mut self.entries[i];
+        e.path = entry.nach.clone();
+        e.done = Some(Some(entry.id));
+        Some(Ok((new_name, entry.id)))
+    }
+
+    fn learn_correction(&mut self, (fields, info, replaced): (NameFields, af_core::LearnInfo, Option<String>)) {
+        if self.learning.is_some() {
+            self.pending_corrections.push((fields, info, replaced));
+            return;
+        }
+        std::sync::Arc::make_mut(&mut self.knowledge).learn(
+            &fields,
+            &info.ids,
+            info.letterhead.as_deref(),
+            replaced.as_deref(),
+        );
+        self.knowledge_changed();
+    }
+
+    fn knowledge_changed(&mut self) {
+        self.knowledge_rev += 1;
+        if let Some(path) = &self.knowledge_file
+            && let Err(err) = self.knowledge.save(path)
+        {
+            log::error!("Wissen nicht gespeichert ({}): {err}", path.display());
+        }
+    }
+
+    /// Stapelmodus: alle offenen, vollständigen Vorschläge ab der Schwelle umbenennen (eine Rückgängig-Gruppe).
+    fn batch(&mut self, ctx: &egui::Context) {
+        let Ok(template) = self.template.clone() else { return };
+        let mut group = Vec::new();
+        let mut failed = 0;
+        for i in self.batch_candidates() {
+            match self.rename_entry(i, &template) {
+                Some(Ok((_, id))) => group.push((i, id)),
+                Some(Err(err)) => {
+                    log::error!("Stapelmodus: {err}");
+                    failed += 1;
+                }
+                None => {}
+            }
+        }
+        if group.is_empty() {
+            return;
+        }
+        let n = group.len();
+        self.undo_stack.push(group);
+        if failed > 0 {
+            self.show_error(trf(
+                "{} Dateien umbenannt, {} fehlgeschlagen (siehe Logdatei)",
+                &[&n, &failed],
+            ));
+        } else {
+            self.show_info(ctx, trf("{} Dateien im Stapel umbenannt", &[&n]), true);
+        }
+        if let Some(next) = self.entries.iter().position(Entry::is_open) {
+            self.current = Some(next);
+        }
+    }
+
+    /// Offene Dateien, deren Vorschlag vollständig und in jedem Feld sicher genug ist (unverändert vom Nutzer).
+    pub fn batch_candidates(&self) -> Vec<usize> {
+        (0..self.entries.len())
+            .filter(|&i| {
+                let e = &self.entries[i];
+                e.is_open()
+                    && match &e.analysis {
+                        AnalysisState::Ready(a) => {
+                            a.suggestion.is_complete()
+                                && a.suggestion.min_confidence() >= threshold()
+                                && a.suggestion.fields() == e.fields
+                        }
+                        _ => false,
+                    }
+            })
+            .collect()
+    }
+
+    fn poll_learning(&mut self, ctx: &egui::Context) {
+        let Some(job) = &self.learning else { return };
+        let Ok((knowledge, stats)) = job.result.try_recv() else {
+            return;
+        };
+        self.learning = None;
+        self.knowledge = std::sync::Arc::new(knowledge);
+        for item in std::mem::take(&mut self.pending_corrections) {
+            std::sync::Arc::make_mut(&mut self.knowledge).learn(
+                &item.0,
+                &item.1.ids,
+                item.1.letterhead.as_deref(),
+                item.2.as_deref(),
+            );
+        }
+        self.knowledge_changed();
+        self.show_info(
+            ctx,
+            trf(
+                "Gelernt aus {} von {} Dateien – {} Unternehmen bekannt",
+                &[&stats.learned, &stats.files, &self.knowledge.unternehmen.len()],
+            ),
+            false,
+        );
+        self.last_learn = Some(stats);
     }
 
     /// Zielordner: Archiv mit Unterordner-Vorlage oder der Ordner der Datei.
@@ -573,17 +761,29 @@ impl App {
     }
 
     fn undo(&mut self, ctx: &egui::Context) {
-        let Some((i, id)) = self.undo_stack.pop() else { return };
+        let Some(group) = self.undo_stack.pop() else { return };
         let Some(journal) = &self.journal else { return };
-        match journal.undo(id) {
-            Ok(entry) => {
-                let e = &mut self.entries[i];
-                e.path = entry.nach;
-                e.done = None;
-                self.current = Some(i);
-                self.show_info(ctx, tr("Rückgängig gemacht").into(), false);
+        let mut errors = Vec::new();
+        let mut first = None;
+        // rückwärts, damit Namensfolgen (…_2) sauber zurückgehen
+        for (i, id) in group.into_iter().rev() {
+            match journal.undo(id) {
+                Ok(entry) => {
+                    let e = &mut self.entries[i];
+                    e.path = entry.nach;
+                    e.done = None;
+                    first = Some(i);
+                }
+                Err(err) => errors.push(err.to_string()),
             }
-            Err(err) => self.show_error(trf("Rückgängig fehlgeschlagen: {}", &[&err])),
+        }
+        if let Some(i) = first {
+            self.current = Some(i);
+        }
+        if errors.is_empty() {
+            self.show_info(ctx, tr("Rückgängig gemacht").into(), false);
+        } else {
+            self.show_error(trf("Rückgängig fehlgeschlagen: {}", &[&errors.join("; ")]));
         }
     }
 
@@ -668,11 +868,48 @@ impl App {
                     self.focus = Some(field);
                 }
             }
+            Action::Batch => self.batch(ctx),
+            Action::StartLearning => {
+                if self.learning.is_none()
+                    && let (Some(root), Ok(template)) = (self.settings.learn_folder.clone(), self.template.clone())
+                {
+                    let ocr = self.settings.learn_with_ocr.then(|| self.settings.ocr.preference());
+                    self.learning = Some(crate::learning::LearnJob::spawn(
+                        ctx.clone(),
+                        root,
+                        template,
+                        (*self.knowledge).clone(),
+                        ocr,
+                    ));
+                }
+            }
+            Action::CancelLearning => {
+                if let Some(job) = &self.learning {
+                    job.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+            Action::ForgetCompany(i) => {
+                let k = std::sync::Arc::make_mut(&mut self.knowledge);
+                if i < k.unternehmen.len() {
+                    k.unternehmen.remove(i);
+                    self.knowledge_changed();
+                }
+            }
+            Action::ForgetKnowledge => {
+                self.knowledge = std::sync::Arc::new(af_core::knowledge::Knowledge::default());
+                self.knowledge_changed();
+            }
+            Action::SetTopic(t) => {
+                if let Some(e) = self.current.and_then(|i| self.entries.get_mut(i)) {
+                    e.fields.thema = t;
+                }
+            }
             Action::ToggleHighlights => {
                 self.settings.show_highlights = !self.settings.show_highlights;
                 self.save_settings();
             }
             Action::SettingsChanged => {
+                set_threshold(self.settings.threshold);
                 self.template = Template::parse(&self.settings.template);
                 crate::i18n::apply_setting(self.settings.language);
                 self.save_settings();
@@ -801,6 +1038,16 @@ impl App {
                 if ui.button(format!("⚙ {}", tr("Einstellungen"))).clicked() {
                     actions.push(Action::OpenSettings);
                 }
+                let n = self.batch_candidates().len();
+                let batch = ui
+                    .add_enabled(n > 0, egui::Button::new(trf("⚡ Sichere übernehmen ({})", &[&n])))
+                    .on_hover_text(trf(
+                        "Alle offenen Dateien umbenennen, bei denen jedes Feld mindestens {} % Sicherheit hat",
+                        &[&threshold()],
+                    ));
+                if batch.clicked() {
+                    actions.push(Action::Batch);
+                }
             });
         });
     }
@@ -867,6 +1114,8 @@ impl App {
                 topics.insert(f.thema);
             }
         }
+        companies.extend(self.knowledge.company_names());
+        topics.extend(self.knowledge.topic_names());
         let clean =
             |set: std::collections::BTreeSet<String>| set.into_iter().filter(|s| !s.trim().is_empty()).collect();
         (clean(companies), clean(topics))
@@ -959,6 +1208,7 @@ impl eframe::App for App {
         }
         self.apply_theme(&ctx);
         self.poll_worker(&ctx);
+        self.poll_learning(&ctx);
         let mut actions = Vec::new();
         self.shortcuts(&ctx, &mut actions);
 
@@ -983,7 +1233,7 @@ impl eframe::App for App {
             }
             let focus = self.focus.take();
             let mut hovered = None;
-            let threshold = THRESHOLD;
+            let threshold = threshold();
             if let Some(cur) = self.current {
                 let target = {
                     let e = &self.entries[cur];
@@ -1030,17 +1280,24 @@ impl eframe::App for App {
             self.selection_menu(&ctx, &mut actions);
         }
 
-        let mut settings_changed = false;
+        let learn_progress = self
+            .learning
+            .as_ref()
+            .and_then(|j| j.progress.lock().ok().map(|p| p.clone()));
+        let kctx = settings_ui::KnowledgeCtx {
+            knowledge: &self.knowledge,
+            progress: learn_progress,
+            last: self.last_learn.as_ref(),
+            file: self.knowledge_file.as_deref(),
+        };
         settings_ui::show(
             &ctx,
             &mut self.settings_ui,
             &mut self.settings,
             &self.entries,
-            &mut settings_changed,
+            &kctx,
+            &mut actions,
         );
-        if settings_changed {
-            actions.push(Action::SettingsChanged);
-        }
         self.toast(&ctx, &mut actions);
 
         for a in actions {

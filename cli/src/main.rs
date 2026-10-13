@@ -14,8 +14,10 @@ use serde::Serialize;
 
 const USAGE: &str = "\
 Aufruf:
-  ablagefuchs-cli suggest [--json | --names] [--tesseract] <datei.pdf | ordner> …
+  ablagefuchs-cli suggest [--json | --names] [--tesseract] [--wissen=DATEI] <datei.pdf | ordner> …
       Namensvorschlag mit Sicherheit und Herkunft je Feld (Scans ohne Text per Texterkennung)
+  ablagefuchs-cli learn [--ocr] [--wissen=DATEI] <ordner>
+      Wissen aus einem benannten Archiv lernen (rekursiv, alle Unterordner; nur lokal)
   ablagefuchs-cli text [--json] <datei.pdf>
       erkannter Text als Zeilen mit Zone und Schrift (Fehlersuche)
   ablagefuchs-cli pages <datei.pdf>
@@ -58,6 +60,28 @@ fn run(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         Some("text") if paths.len() == 1 => text(&paths[0], flags.contains(&"--json")),
+        Some("learn") if paths.len() == 1 => {
+            let path = knowledge_path(&flags)?;
+            let mut knowledge = af_core::knowledge::Knowledge::load(&path)?;
+            let template = Template::parse(DEFAULT_TEMPLATE)?;
+            let ocr = flags.contains(&"--ocr").then_some(af_ocr::Preference::Auto);
+            let stats = af_ocr::archive::learn_folder(&paths[0], &template, &mut knowledge, ocr, |p| {
+                eprint!("\r{} / {}", p.done + 1, p.total);
+                true
+            });
+            eprintln!();
+            knowledge.save(&path)?;
+            println!(
+                "{} PDFs, {} gelernt, {} mit anderem Namensschema übersprungen, {} nicht lesbar → {} Unternehmen in {}",
+                stats.files,
+                stats.learned,
+                stats.skipped_name,
+                stats.errors,
+                knowledge.unternehmen.len(),
+                path.display()
+            );
+            Ok(())
+        }
         Some("suggest") if !paths.is_empty() => {
             let mode = if flags.contains(&"--json") {
                 Output::Json
@@ -71,7 +95,11 @@ fn run(args: &[String]) -> anyhow::Result<()> {
             } else {
                 af_ocr::Preference::Auto
             };
-            suggest(&paths, mode, ocr)
+            let knowledge = match flags.iter().any(|f| f.starts_with("--wissen=")) {
+                true => Some(af_core::knowledge::Knowledge::load(&knowledge_path(&flags)?)?),
+                false => None,
+            };
+            suggest(&paths, mode, ocr, knowledge.as_ref())
         }
         _ => {
             eprintln!("{USAGE}");
@@ -96,7 +124,12 @@ struct FileSuggestion {
     suggestion: Suggestion,
 }
 
-fn suggest(paths: &[PathBuf], mode: Output, ocr_pref: af_ocr::Preference) -> anyhow::Result<()> {
+fn suggest(
+    paths: &[PathBuf],
+    mode: Output,
+    ocr_pref: af_ocr::Preference,
+    knowledge: Option<&af_core::knowledge::Knowledge>,
+) -> anyhow::Result<()> {
     let template = Template::parse(DEFAULT_TEMPLATE)?;
     let opts = NamingOptions::default();
     let mut results = Vec::new();
@@ -109,6 +142,7 @@ fn suggest(paths: &[PathBuf], mode: Output, ocr_pref: af_ocr::Preference) -> any
         let ctx = Context {
             reference_date: modified_date(&file),
             ocr_quality,
+            knowledge,
         };
         let suggestion = af_core::analyze(&pages, &ctx);
         let name = template.file_name(&suggestion.fields(), &opts);
@@ -181,6 +215,15 @@ fn describe(source: &Source) -> String {
         Source::Topic(TopicSource::LineItem) => "aus der ersten Rechnungsposition".into(),
         Source::InvoiceSignals(s) if s.is_empty() => "keine Rechnungsmerkmale".into(),
         Source::InvoiceSignals(s) => format!("Merkmale: {}", s.join(", ")),
+        Source::Knowledge {
+            kennung: Some(k),
+            dokumente,
+        } => format!("gelernt über {k:?} ({dokumente} Dokumente)"),
+        Source::Knowledge {
+            kennung: None,
+            dokumente,
+        } => format!("gelernt über den Namen ({dokumente} Dokumente)"),
+        Source::KnownTopic { anzahl } => format!("häufigstes Thema dieses Absenders ({anzahl}×)"),
     }
 }
 
@@ -205,6 +248,15 @@ fn text(path: &Path, json: bool) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+/// `--wissen=DATEI` oder die Wissensdatei der App im Einstellungsordner.
+fn knowledge_path(flags: &[&str]) -> anyhow::Result<PathBuf> {
+    if let Some(p) = flags.iter().find_map(|f| f.strip_prefix("--wissen=")) {
+        return Ok(PathBuf::from(p));
+    }
+    let dir = dirs::config_dir().ok_or_else(|| anyhow::anyhow!("kein Einstellungsordner"))?;
+    Ok(dir.join("Ablagefuchs").join("wissen.json"))
 }
 
 /// Dateien und Ordner (nicht rekursiv) zu einer sortierten Liste von PDFs.

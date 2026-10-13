@@ -6,6 +6,7 @@
 //! - `AF_SIZE=1600x1000`, `AF_LANG=de|en`, `AF_THEME=hell|dunkel`
 //! - `AF_SETTINGS=allgemein|name|ordner|ueber` öffnet die Einstellungen auf dieser Seite
 //! - `AF_FILE=3` wählt die dritte Datei
+//! - `AF_WISSEN=/pfad/wissen.json` Wissensdatei für Entwicklerläufe (sonst ohne Wissen); `AF_LERNORDNER=…` Lernordner
 //! - `AF_KEYS=enter,enter,cmd+z,alt+r,cmd+down` drückt nacheinander diese Tasten (Ablauf ohne Maus testen);
 //!   dazu `text:Abc`, `move:x:y`, `press:x:y`, `release:x:y` (Maus in Punkt, für Klicks und Ziehen)
 //! - Bei diesen Schaltern wird nichts gespeichert.
