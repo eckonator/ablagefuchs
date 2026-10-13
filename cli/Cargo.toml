@@ -1,0 +1,14 @@
+[package]
+name = "ablagefuchs-cli"
+description = "Ablagefuchs auf der Kommandozeile"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+af-core.workspace = true
+af-pdf.workspace = true
+anyhow.workspace = true

@@ -1,0 +1,52 @@
+# Tests, Clippy und Formatierung bei jedem Push und Pull Request, auf allen drei Systemen.
+# Dazu die Lizenz- und Sicherheitsprüfung der Abhängigkeiten (cargo-deny).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux-Pakete
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev \
+            libxrandr-dev libxi-dev libgl1-mesa-dev pkg-config
+      - name: Formatierung
+        if: runner.os == 'Linux'
+        run: cargo fmt --all --check
+      - name: pdfium holen
+        run: cargo xtask fetch-pdfium
+      - name: Tests
+        run: cargo test --workspace
+        env:
+          AF_REQUIRE_PDFIUM: "1"
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Demo-PDFs erzeugen und mit pdfium öffnen
+        shell: bash
+        run: |
+          cargo xtask demo-pdfs
+          cargo run --quiet -p ablagefuchs-cli -- pages demo/Eingang/scan_20261002_0004.pdf | grep -qx 4
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2

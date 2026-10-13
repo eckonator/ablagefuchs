@@ -1,0 +1,12 @@
+[package]
+name = "af-core"
+description = "Erkennung, Namensvorlage und Dateilogik von Ablagefuchs (ohne PDF- und GUI-Abhängigkeiten)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true

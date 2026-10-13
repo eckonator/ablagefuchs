@@ -1,0 +1,18 @@
+[package]
+name = "af-pdf"
+description = "PDF-Zugriff für Ablagefuchs: rendern, Text mit Positionen, Metadaten (pdfium + lopdf)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+af-core.workspace = true
+anyhow.workspace = true
+log.workspace = true
+pdfium-render.workspace = true
+
+[dev-dependencies]
+lopdf.workspace = true

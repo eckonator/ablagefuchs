@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+.DS_Store
+.idea/
+/dist
+# Von `cargo xtask fetch-pdfium` bzw. `cargo xtask demo-pdfs` erzeugt
+/vendor
+/demo
