@@ -275,11 +275,20 @@ impl Knowledge {
     /// Lernt aus einem fertig benannten Dokument: `fields` sind die endgültigen Felder (vom Nutzer bestätigt
     /// oder aus einem Dateinamen im Archiv), `letterhead` der aus dem Briefkopf gelesene Name.
     /// `replaced`: Unternehmen, das die App vorgeschlagen und der Nutzer durch ein anderes ersetzt hat.
-    pub fn learn(&mut self, fields: &NameFields, ids: &[FoundId], letterhead: Option<&str>, replaced: Option<&str>) {
+    /// Gibt `true` zurück, wenn sich etwas für die Erkennung geändert hat (neues Unternehmen, neue Kennung,
+    /// neuer Alias, neue Schreibweise); bloßes Mitzählen von Themen zählt nicht.
+    pub fn learn(
+        &mut self,
+        fields: &NameFields,
+        ids: &[FoundId],
+        letterhead: Option<&str>,
+        replaced: Option<&str>,
+    ) -> bool {
         let name = fields.unternehmen.trim();
         if name.is_empty() {
-            return;
+            return false;
         }
+        let before = self.recognition_fingerprint();
         let idx = match self
             .find_company(name)
             .or_else(|| letterhead.and_then(|l| self.find_company(l)))
@@ -328,6 +337,16 @@ impl Knowledge {
         if fields.rechnung {
             c.rechnungen += 1;
         }
+        self.recognition_fingerprint() != before
+    }
+
+    /// Alles, was die Zuordnung eines Dokuments beeinflusst (Namen, Aliase, Kennungen), als Vergleichswert.
+    fn recognition_fingerprint(&self) -> String {
+        self.unternehmen
+            .iter()
+            .map(|c| format!("{}|{:?}|{:?}", c.name, c.aliase, c.kennungen))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Lädt `wissen.json`; fehlt die Datei, gibt es leeres Wissen.

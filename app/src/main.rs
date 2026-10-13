@@ -16,6 +16,7 @@ mod learning;
 mod preview;
 mod settings;
 mod settings_ui;
+mod tags;
 mod theme;
 mod worker;
 

@@ -35,6 +35,10 @@ pub struct Analysis {
     /// Text mit Positionen der ersten Seiten (für die Textauswahl in der Vorschau)
     pub text: Vec<PageText>,
     pub source: TextSource,
+    /// Prüfsumme des Dateiinhalts (doppelte Dateien)
+    pub content_key: Option<String>,
+    /// Prüfsumme des Textes (doppelt gescannt: andere Bytes, gleicher Text)
+    pub text_key: Option<u64>,
 }
 
 impl Analysis {
@@ -144,11 +148,14 @@ fn analyze(
         knowledge: Some(knowledge),
     };
     let suggestion = af_core::analyze(&text, &ctx);
+    let text_key = text_fingerprint(&text);
     Ok(Analysis {
         pages,
         suggestion,
         text,
         source,
+        content_key: key,
+        text_key,
     })
 }
 
@@ -162,4 +169,22 @@ fn modified_date(p: &std::path::Path) -> Option<NaiveDate> {
         .ok()?
         .as_secs();
     Some(chrono::DateTime::from_timestamp(i64::try_from(secs).ok()?, 0)?.date_naive())
+}
+
+/// Fingerabdruck des Textes: nur Buchstaben und Ziffern, klein. Erst ab etwas Text aussagekräftig.
+fn text_fingerprint(pages: &[PageText]) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let norm: String = pages
+        .iter()
+        .flat_map(|p| p.words.iter())
+        .flat_map(|w| w.text.chars())
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect();
+    if norm.chars().count() < 200 {
+        return None;
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    norm.hash(&mut h);
+    Some(h.finish())
 }

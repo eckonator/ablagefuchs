@@ -25,6 +25,11 @@ pub struct FormCtx<'a> {
     /// Vorschläge für die Autovervollständigung
     pub companies: &'a [String],
     pub topics: &'a [String],
+    /// Name einer anderen Datei mit gleichem Inhalt/Text
+    pub duplicate: Option<&'a str>,
+    pub meta: &'a crate::settings::MetaSettings,
+    /// (Titel, Stichwörter, Finder-Tags), wie sie geschrieben würden
+    pub meta_preview: &'a (String, String, Vec<String>),
 }
 
 /// Höchstens so viele Einträge in der Vorschlagsliste.
@@ -134,6 +139,23 @@ pub fn show(
                 }
             };
         let s = suggestion.as_ref();
+        if let Some(other) = c.duplicate
+            && e.is_open()
+        {
+            ui.add_space(6.0);
+            egui::Frame::new()
+                .fill(theme::warn(&ctx).gamma_multiply(0.15))
+                .corner_radius(8)
+                .inner_margin(10)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.colored_label(theme::warn(&ctx), RichText::new(tr("Doppelt gescannt?")).strong());
+                    ui.label(RichText::new(trf("Gleicher Inhalt wie {}", &[&other])).small());
+                    if ui.button(tr("In den Papierkorb")).clicked() {
+                        actions.push(Action::TrashCurrent);
+                    }
+                });
+        }
         if !e.is_open() {
             ui.add_space(4.0);
             ui.colored_label(theme::ok(&ctx), trf("Erledigt: {}", &[&e.file_name()]));
@@ -238,6 +260,8 @@ pub fn show(
         ui.add_space(14.0);
 
         result_box(ui, e, c);
+        ui.add_space(10.0);
+        metadata_section(ui, e, c);
     });
     hovered
 }
@@ -475,6 +499,65 @@ fn result_box(ui: &mut egui::Ui, e: &Entry, c: &FormCtx<'_>) {
             }
             if !problems.is_empty() {
                 ui.colored_label(theme::bad(&ctx), RichText::new(problems.join(" · ")).small());
+            }
+        });
+}
+
+/// Aufklappbar: was beim Umbenennen ins PDF bzw. als Finder-Tag geschrieben wird; Titel und Stichwörter änderbar.
+fn metadata_section(ui: &mut egui::Ui, e: &mut Entry, c: &FormCtx<'_>) {
+    let m = c.meta;
+    if !(m.info || m.xmp || m.finder_tags || m.embed_ocr) {
+        return;
+    }
+    let (title, keywords, tags) = c.meta_preview;
+    let edited = e.meta_title.is_some() || e.meta_keywords.is_some();
+    let header = if edited {
+        tr("PDF-Metadaten (bearbeitet)")
+    } else {
+        tr("PDF-Metadaten")
+    };
+    egui::CollapsingHeader::new(RichText::new(header).strong())
+        .id_salt("metadaten")
+        .show(ui, |ui| {
+            if m.info || m.xmp {
+                ui.label(RichText::new(tr("Titel")).small().weak());
+                let mut t = title.clone();
+                if ui
+                    .add(egui::TextEdit::singleline(&mut t).desired_width(f32::INFINITY))
+                    .changed()
+                {
+                    e.meta_title = Some(t);
+                }
+                ui.label(RichText::new(tr("Stichwörter (kommagetrennt)")).small().weak());
+                let mut k = keywords.clone();
+                if ui
+                    .add(egui::TextEdit::singleline(&mut k).desired_width(f32::INFINITY))
+                    .changed()
+                {
+                    e.meta_keywords = Some(k);
+                }
+            }
+            if m.finder_tags && cfg!(target_os = "macos") {
+                ui.label(RichText::new(tr("Finder-Tags")).small().weak());
+                ui.horizontal_wrapped(|ui| {
+                    for t in tags {
+                        badge(ui, t, theme::accent(ui.ctx()));
+                    }
+                });
+            }
+            let is_scan = matches!(&e.analysis, AnalysisState::Ready(a) if matches!(a.source, TextSource::Ocr { .. }));
+            if m.embed_ocr && is_scan {
+                ui.label(
+                    RichText::new(tr(
+                        "Die erkannte Schrift wird als unsichtbare Textebene eingebettet (Volltextsuche).",
+                    ))
+                    .small()
+                    .weak(),
+                );
+            }
+            if edited && ui.small_button(tr("Automatisch")).clicked() {
+                e.meta_title = None;
+                e.meta_keywords = None;
             }
         });
 }
