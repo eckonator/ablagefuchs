@@ -234,7 +234,7 @@ impl LooseName {
     }
 
     /// Wortfolgen, die als Firma in Frage kommen (Vergleichsform).
-    fn candidate_runs(&self) -> Vec<String> {
+    pub fn candidate_runs(&self) -> Vec<String> {
         let n = self.words.len();
         let mut out = Vec::new();
         for len in 1..=MAX_RUN.min(n) {
@@ -250,6 +250,69 @@ impl LooseName {
             }
         }
         out
+    }
+}
+
+/// Betreff eines Briefs als Wörter in Vergleichsform (für [`company_of_group`]).
+pub fn subject_words(layout: &Layout) -> Vec<String> {
+    let invoice = crate::invoice::detect(layout).is_invoice;
+    let dates = crate::dates::find_dates(layout, None);
+    crate::topic::detect(layout, invoice, &dates)
+        .map(|t| normalize_name(&t.text).split(' ').map(String::from).collect())
+        .unwrap_or_default()
+}
+
+/// Ein Brief einer Gruppe gleicher Briefköpfe: Dateiname und Wörter seines Betreffs.
+pub struct GroupMember<'a> {
+    pub name: &'a LooseName,
+    pub subject: &'a [String],
+}
+
+/// Firma einer Gruppe von Briefen mit gleichem Briefkopf, deren Firma der Brief selbst nicht nennt (Logo als
+/// Bild): die Wortfolge, die in fast allen Dateinamen der Gruppe steht. Damit Themen nicht als Firma gelten,
+/// fallen Wortfolgen weg, die
+/// - ein bekanntes Themenwort enthalten (`topic_words`),
+/// - im Betreff von mindestens der Hälfte der Briefe stehen („Kontoauszug“),
+/// - in anderen Gruppen vorkommen (`elsewhere` zählt, in wie vielen; ab zwei ist es eher ein Thema).
+///
+/// Von ineinander enthaltenen Wortfolgen gleicher Häufigkeit gilt die längste („Stadtwerke Musterstadt“).
+/// Bleibt nicht genau eine übrig, ist die Gruppe unklar (`None`). Gibt die Vergleichsform zurück.
+pub fn company_of_group(
+    members: &[GroupMember<'_>],
+    topic_words: &std::collections::HashSet<String>,
+    elsewhere: impl Fn(&str) -> usize,
+) -> Option<String> {
+    let n = members.len();
+    if n < 2 {
+        return None;
+    }
+    let mut coverage: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for m in members {
+        let mut runs = m.name.candidate_runs();
+        runs.sort();
+        runs.dedup();
+        for r in runs {
+            *coverage.entry(r).or_insert(0) += 1;
+        }
+    }
+    let need = 2.max((n * 4).div_ceil(5));
+    let in_subjects = |word: &str| members.iter().filter(|m| m.subject.iter().any(|w| w == word)).count() * 2 >= n;
+    let candidates: Vec<(&String, usize)> = coverage
+        .iter()
+        .filter(|&(run, &c)| {
+            c >= need && !run.split(' ').any(|w| topic_words.contains(w) || in_subjects(w)) && elsewhere(run) < 2
+        })
+        .map(|(r, &c)| (r, c))
+        .collect();
+    let contains = |long: &str, short: &str| long != short && format!(" {long} ").contains(&format!(" {short} "));
+    let maximal: Vec<&String> = candidates
+        .iter()
+        .filter(|(r, c)| !candidates.iter().any(|(o, oc)| oc >= c && contains(o, r)))
+        .map(|(r, _)| *r)
+        .collect();
+    match maximal[..] {
+        [one] => Some(one.clone()),
+        _ => None,
     }
 }
 
@@ -403,5 +466,68 @@ mod tests {
             name.miss_reason(&page_texts(&page(&[(BODY, 60.0, 300.0, 10.0)]))),
             Miss::Missing
         );
+    }
+
+    fn group(names: &[(&str, &str)], topics: &[&str], elsewhere: usize) -> Option<String> {
+        let parsed: Vec<(LooseName, Vec<String>)> = names
+            .iter()
+            .map(|(n, subj)| {
+                (
+                    LooseName::parse(n).unwrap(),
+                    normalize_name(subj).split(' ').map(String::from).collect(),
+                )
+            })
+            .collect();
+        let members: Vec<GroupMember<'_>> = parsed
+            .iter()
+            .map(|(name, subject)| GroupMember { name, subject })
+            .collect();
+        let topics = topics.iter().map(|t| t.to_string()).collect();
+        company_of_group(&members, &topics, |_| elsewhere)
+    }
+
+    #[test]
+    fn company_from_a_group_of_same_letterheads() {
+        // Firma in jedem Namen, Themen wechseln
+        let names = [
+            (
+                "2024-02-01_Kraftwerk_Fitness_Mitgliedsbeitrag.pdf",
+                "Mitgliedsbeitrag 2024",
+            ),
+            (
+                "2024-05-03_Vertragsaenderung_Kraftwerk_Fitness.pdf",
+                "Änderung Ihres Vertrags",
+            ),
+            ("2024-09-01_Kraftwerk_Fitness_Kuendigung.pdf", "Kündigungsbestätigung"),
+        ];
+        assert_eq!(group(&names, &[], 0).as_deref(), Some("kraftwerk fitness"));
+        // ein Ausreißer ohne Firma im Namen stört nicht (4 von 5 reichen)
+        let mut more = names.to_vec();
+        more.push(("2024-10-01_Kraftwerk_Fitness_Beitrag.pdf", "Beitrag"));
+        more.push(("2024-11-01_Brief.pdf", "Mitteilung"));
+        assert_eq!(group(&more, &[], 0).as_deref(), Some("kraftwerk fitness"));
+    }
+
+    #[test]
+    fn group_never_takes_a_topic() {
+        // Monatlich gleich benannt: „Kontoauszug“ steht im Betreff jedes Briefs, also Thema
+        let statements = [
+            ("2024-01-31_Sparkasse_Kontoauszug.pdf", "Kontoauszug 1/2024"),
+            ("2024-02-29_Sparkasse_Kontoauszug.pdf", "Kontoauszug 2/2024"),
+            ("2024-03-31_Sparkasse_Kontoauszug.pdf", "Kontoauszug 3/2024"),
+        ];
+        assert_eq!(group(&statements, &[], 0).as_deref(), Some("sparkasse"));
+        // bekanntes Themenwort bei sonst gleichen Namen
+        let bills = [
+            ("2024-01-05_Mobilnetz_Mobilfunk.pdf", "Ihre Rechnung"),
+            ("2024-02-05_Mobilnetz_Mobilfunk.pdf", "Ihre Rechnung"),
+        ];
+        assert_eq!(group(&bills, &["mobilfunk"], 0).as_deref(), Some("mobilnetz"));
+        // ohne diese Hinweise ist nicht zu entscheiden, ob „Mobilfunk“ zur Firma gehört: dann die längste
+        assert_eq!(group(&bills, &[], 0).as_deref(), Some("mobilnetz mobilfunk"));
+        // kommt überall vor: eher Thema, nichts lernen
+        assert_eq!(group(&bills, &[], 3), None);
+        // eine einzelne Datei ist keine Gruppe
+        assert_eq!(group(&bills[..1], &[], 0), None);
     }
 }

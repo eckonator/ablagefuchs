@@ -21,6 +21,9 @@ pub enum Page {
     About,
 }
 
+/// Mögliches Doppel: zwei Unternehmen (Nummern) und der Grund.
+type Duplicate = (usize, usize, af_core::knowledge::Why);
+
 #[derive(Default)]
 pub struct SettingsUi {
     pub open: bool,
@@ -35,7 +38,7 @@ pub struct SettingsUi {
     rename_buf: String,
     merge_target: Option<usize>,
     /// Mögliche Doppel mit dem Wissensstand, für den sie berechnet wurden
-    duplicates: Option<(u64, Vec<(usize, usize)>)>,
+    duplicates: Option<(u64, Vec<Duplicate>)>,
 }
 
 /// Was die Seite „Wissen“ anzeigt.
@@ -684,6 +687,15 @@ fn knowledge(
                 ],
             ),
         );
+        if l.by_logo + l.by_group + l.logos_added > 0 {
+            hint(
+                ui,
+                &trf(
+                    "Briefkopf-Bild: {} Dateien über bekannte Logos gelernt, {} über Gruppen gleicher Briefköpfe, bei {} schon gelernten nachgetragen",
+                    &[&l.by_logo, &l.by_group, &l.logos_added],
+                ),
+            );
+        }
         if l.unconfirmed > 0 {
             hint(
                 ui,
@@ -774,15 +786,17 @@ fn duplicates(ui: &mut egui::Ui, st: &mut SettingsUi, k: &KnowledgeCtx<'_>, acti
                 ui,
                 tr("Zusammenführen behält den Namen des Unternehmens mit mehr Dokumenten; der andere wird zur weiteren Schreibweise."),
             );
-            for &(a, b) in pairs.iter().take(8) {
+            for &(a, b, why) in pairs.iter().take(8) {
                 let (Some(ca), Some(cb)) = (companies.get(a), companies.get(b)) else { continue };
                 // in das häufigere zusammenführen
                 let (from, into) = if ca.anzahl >= cb.anzahl { (b, a) } else { (a, b) };
+                let why = match why {
+                    af_core::knowledge::Why::Name => tr("ähnlicher Name").to_string(),
+                    af_core::knowledge::Why::Kennung(kind) => trf("gleiche {}", &[&id_label(kind)]),
+                    af_core::knowledge::Why::Briefkopf => tr("gleicher Briefkopf").to_string(),
+                };
+                // von rechts aufgebaut: Knöpfe und Grund bleiben sichtbar, der Name bekommt den Rest
                 ui.horizontal(|ui| {
-                    ui.add(
-                        egui::Label::new(format!("{} ({}) ↔ {} ({})", ca.name, ca.anzahl, cb.name, cb.anzahl))
-                            .truncate(),
-                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.add_enabled(!learning, egui::Button::new(tr("Kein Doppel")).small()).clicked() {
                             actions.push(Action::DismissDuplicate(ca.name.clone(), cb.name.clone()));
@@ -795,6 +809,16 @@ fn duplicates(ui: &mut egui::Ui, st: &mut SettingsUi, k: &KnowledgeCtx<'_>, acti
                             actions.push(Action::MergeCompanies { from, into });
                             st.selected = None;
                         }
+                        ui.label(RichText::new(why).small().weak());
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.add(
+                                egui::Label::new(format!(
+                                    "{} ({}) ↔ {} ({})",
+                                    ca.name, ca.anzahl, cb.name, cb.anzahl
+                                ))
+                                .truncate(),
+                            );
+                        });
                     });
                 });
             }
@@ -870,12 +894,15 @@ fn company_table(ui: &mut egui::Ui, st: &mut SettingsUi, k: &KnowledgeCtx<'_>) {
                         }
                     },
                 );
-                let ids: Vec<&str> = c
+                let mut ids: Vec<&str> = c
                     .kennungen
                     .iter()
                     .filter(|(_, v)| !v.is_empty())
                     .map(|(kind, _)| id_label(*kind))
                     .collect();
+                if !c.logos.is_empty() {
+                    ids.push(tr("Briefkopf-Bild"));
+                }
                 let ids = ids.join(", ");
                 cell(ui, widths[1], RichText::new(&ids).small().weak(), &ids);
                 let topics = c.topics().into_iter().take(5).collect::<Vec<_>>().join(", ");
@@ -956,6 +983,16 @@ fn company_editor(
                     st.merge_target = None;
                 }
             });
+            let mut never = c.nie_doppel;
+            if ui
+                .checkbox(&mut never, tr("Nie als mögliches Doppel vorschlagen"))
+                .on_hover_text(tr(
+                    "Für Absender, deren Briefe viele andere Firmen nennen, z. B. die Bank mit Kontoauszügen.",
+                ))
+                .changed()
+            {
+                actions.push(Action::SetNeverDuplicate(i, never));
+            }
             if ui.button(tr("Vergessen")).clicked() {
                 actions.push(Action::ForgetCompany(i));
                 st.selected = None;

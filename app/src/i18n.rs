@@ -339,6 +339,20 @@ fn en(de: &str) -> Option<&'static str> {
         "Zeitraum bis" => "period to",
         "Zeitraum von" => "period from",
         "Zuletzt benutzt" => "Recently used",
+        "ähnlicher Name" => "similar name",
+        "gleiche {}" => "same {}",
+        "gleicher Briefkopf" => "same letterhead",
+        "Nie als mögliches Doppel vorschlagen" => "Never suggest as a possible duplicate",
+        "Für Absender, deren Briefe viele andere Firmen nennen, z. B. die Bank mit Kontoauszügen." => {
+            "For senders whose letters mention many other companies, e.g. the bank with account statements."
+        }
+        "Briefkopf-Bild" => "Letterhead image",
+        "Briefkopf-Bild: {} Dateien über bekannte Logos gelernt, {} über Gruppen gleicher Briefköpfe, bei {} schon gelernten nachgetragen" => {
+            "Letterhead image: {} files learned via known logos, {} via groups of identical letterheads, added for {} already learned files"
+        }
+        "Am Bild des Briefkopfs erkannt ({} % ähnlich, {} Dokumente) – bitte prüfen" => {
+            "Recognized by the letterhead image ({} % similar, {} documents) – please check"
+        }
         "Prüfliste: ↵ lernt die Firma, umbenannt wird nichts. Zurück über den Ordner oben." => {
             "Review list: ↵ learns the company, nothing is renamed. Go back via the folder above."
         }

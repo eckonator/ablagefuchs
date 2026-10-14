@@ -142,10 +142,12 @@ fn analyze(
         TextSource::Ocr { mean_confidence, .. } => Some(*mean_confidence),
         TextSource::Embedded => None,
     };
+    let logo = af_ocr::letterhead_fingerprint(path);
     let ctx = Context {
         reference_date: modified_date(path),
         ocr_quality,
         knowledge: Some(knowledge),
+        logo: logo.as_ref(),
     };
     let suggestion = af_core::analyze(&text, &ctx);
     let text_key = text_fingerprint(&text);

@@ -50,6 +50,34 @@ impl Page {
         ]);
         self
     }
+    /// Gefülltes Rechteck (für Bild-Logos)
+    fn rect(&mut self, x: f32, y: f32, w: f32, h: f32) -> &mut Self {
+        self.ops.extend([
+            Operation::new("re", vec![x.into(), (H - y - h).into(), w.into(), h.into()]),
+            Operation::new("f", vec![]),
+        ]);
+        self
+    }
+    /// Gefüllter Kreis um (cx, cy), aus vier Bézierkurven
+    fn circle(&mut self, cx: f32, cy: f32, r: f32) -> &mut Self {
+        let k = 0.552 * r;
+        let y = H - cy;
+        let c = |x1: f32, y1: f32, x2: f32, y2: f32, x3: f32, y3: f32| {
+            Operation::new(
+                "c",
+                vec![x1.into(), y1.into(), x2.into(), y2.into(), x3.into(), y3.into()],
+            )
+        };
+        self.ops.extend([
+            Operation::new("m", vec![(cx + r).into(), y.into()]),
+            c(cx + r, y + k, cx + k, y + r, cx, y + r),
+            c(cx - k, y + r, cx - r, y + k, cx - r, y),
+            c(cx - r, y - k, cx - k, y - r, cx, y - r),
+            c(cx + k, y - r, cx + r, y - k, cx + r, y),
+            Operation::new("f", vec![]),
+        ]);
+        self
+    }
     /// Fließtext, eine Zeile je Eintrag. Gibt die y-Position nach dem Absatz zurück.
     fn para(&mut self, y: f32, lines: &[&str]) -> f32 {
         for (i, l) in lines.iter().enumerate() {
@@ -96,6 +124,55 @@ fn letter(company: &str, company_size: f32, address: &[&str], info: &[&str]) -> 
         p.text(INFO_X, 250.0 + i as f32 * 13.0, 9.0, false, l);
     }
     p
+}
+
+/// Briefkopf nur als Bild: Sonne mit Strahlen und Wellenbalken, ohne Firmennamen als Text (wie ein gedrucktes
+/// Logo, das die Texterkennung nicht lesen kann). Die Absenderzeile nennt nur die Anschrift.
+fn logo_letter(address: &[&str], info: &[&str]) -> Page {
+    let mut p = Page::default();
+    p.circle(LEFT + 28.0, 62.0, 18.0);
+    for i in 0..8 {
+        let a = i as f32 * std::f32::consts::FRAC_PI_4;
+        let (x, y) = (LEFT + 28.0 + a.cos() * 27.0, 62.0 + a.sin() * 27.0);
+        p.circle(x, y, 3.5);
+    }
+    for (i, w) in [120.0, 90.0, 140.0].iter().enumerate() {
+        p.rect(LEFT + 70.0, 46.0 + i as f32 * 12.0, *w, 6.0);
+    }
+    letter_body(&mut p, address, info);
+    p
+}
+
+/// Zweites Bild-Logo (Hantel aus Balken und Kreisen) für ein Fitnessstudio, ebenfalls ohne Namen als Text.
+fn fitness_letter(info: &[&str]) -> Page {
+    let mut p = Page::default();
+    p.rect(LEFT, 52.0, 14.0, 34.0);
+    p.rect(LEFT + 18.0, 58.0, 8.0, 22.0);
+    p.rect(LEFT + 26.0, 66.0, 70.0, 6.0);
+    p.rect(LEFT + 96.0, 58.0, 8.0, 22.0);
+    p.rect(LEFT + 108.0, 52.0, 14.0, 34.0);
+    p.circle(LEFT + 160.0, 69.0, 12.0);
+    p.circle(LEFT + 190.0, 69.0, 12.0);
+    letter_body(&mut p, &["Hallenweg 1", "76131 Musterstadt"], info);
+    p
+}
+
+/// Rest eines Briefs mit Bild-Logo: Anschrift rechts, Absenderzeile ohne Namen, Empfänger, Infoblock.
+fn letter_body(p: &mut Page, address: &[&str], info: &[&str]) {
+    for (i, l) in address.iter().enumerate() {
+        p.small(INFO_X, 62.0 + i as f32 * 10.0, l);
+    }
+    p.small(LEFT, 140.0, &address.join(" · "));
+    p.line(LEFT, 144.0, 300.0, 144.0);
+    for (i, l) in ["Herrn", "Markus Beispiel", "Lindenallee 12", "76133 Musterstadt"]
+        .iter()
+        .enumerate()
+    {
+        p.t(LEFT, 162.0 + i as f32 * 14.0, l);
+    }
+    for (i, l) in info.iter().enumerate() {
+        p.text(INFO_X, 250.0 + i as f32 * 13.0, 9.0, false, l);
+    }
 }
 
 fn footer(p: &mut Page, left: &str, page: usize, pages: usize) {
@@ -678,5 +755,68 @@ pub fn write_archive(dir: &Path) -> anyhow::Result<()> {
         save(vec![p], &path)?;
         println!("{}", path.display());
     }
+    // Bäckerei mit reinem Bild-Logo: Brief A nennt den Namen in der Fußzeile (daraus lernt Ablagefuchs das Logo),
+    // Brief B ist ein Scan ohne den Namen – nur das Logo verbindet ihn mit der Bäckerei
+    let address: &[&str] = &["Backstraße 5", "76133 Musterstadt"];
+    let mut a = logo_letter(address, &["Rechnung Nr. 2024-118", "Datum: 02.04.2024"]);
+    a.text(LEFT, 310.0, 12.0, true, "Rechnung Catering Firmenfeier");
+    let y = a.para(340.0, &["Sehr geehrter Herr Beispiel,"]);
+    a.table(
+        y,
+        &[("Buffet für 20 Personen", "380,00 €"), ("Gesamtbetrag", "380,00 €")],
+        true,
+    );
+    footer(&mut a, "Bäckerei Sonnenschein · Backstraße 5 · 76133 Musterstadt", 1, 1);
+    let path = dir.join("2024/Baeckerei/2024-04-02_Baeckerei_Sonnenschein_-_Catering_Rechnung.pdf");
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    save(vec![a], &path)?;
+    println!("{}", path.display());
+    let path = dir.join("2024/Baeckerei/2024-06-10_Baeckerei_Sonnenschein_Hochzeitstorte.pdf");
+    scanned(
+        logo_scan_letter("Auftragsbestätigung Hochzeitstorte", "10.06.2024"),
+        &path,
+    )?;
+    println!("{}", path.display());
+    // Fitnessstudio: kein einziger Brief nennt den Namen als Text; nur die Gruppe gleicher Briefköpfe mit
+    // derselben Firma im Dateinamen belegt sie (Themen wechseln, Reihenfolge im Namen auch)
+    for (file, subject, date) in [
+        (
+            "2024-02-01_Kraftwerk_Fitness_Mitgliedsbeitrag.pdf",
+            "Mitgliedsbeitrag 2024",
+            "01.02.2024",
+        ),
+        (
+            "2024-05-03_Vertragsaenderung_Kraftwerk_Fitness.pdf",
+            "Änderung Ihres Vertrags",
+            "03.05.2024",
+        ),
+        (
+            "2024-09-01_Kraftwerk_Fitness_Ruhezeit.pdf",
+            "Bestätigung Ihrer Ruhezeit",
+            "01.09.2024",
+        ),
+    ] {
+        let mut p = fitness_letter(&[&format!("Datum: {date}")]);
+        p.text(LEFT, 310.0, 12.0, true, subject);
+        p.para(340.0, &["Hallo Markus,", "vielen Dank für Deine Nachricht."]);
+        footer(&mut p, "Hallenweg 1 · 76131 Musterstadt", 1, 1);
+        let path = dir.join("2024/Sport").join(file);
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        scanned(p, &path)?;
+        println!("{}", path.display());
+    }
     Ok(())
+}
+
+/// Brief der Bäckerei ohne Namen im Text (nur Logo), z. B. für den Eingang oder das Archiv.
+fn logo_scan_letter(subject: &str, date: &str) -> Page {
+    let mut p = logo_letter(&["Backstraße 5", "76133 Musterstadt"], &[&format!("Datum: {date}")]);
+    p.text(LEFT, 310.0, 12.0, true, subject);
+    let y = p.para(
+        340.0,
+        &["Sehr geehrter Herr Beispiel,", "vielen Dank für Ihren Auftrag."],
+    );
+    p.table(y, &[("Torte dreistöckig", "260,00 €")], true);
+    footer(&mut p, "Backstraße 5 · 76133 Musterstadt · Telefon 0721 555 123", 1, 1);
+    p
 }
