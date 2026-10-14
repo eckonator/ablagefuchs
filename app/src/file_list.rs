@@ -7,7 +7,15 @@ use crate::app::{Action, AnalysisState, Entry, Filter};
 use crate::i18n::tr;
 use crate::theme;
 
-pub fn show(ui: &mut egui::Ui, entries: &[Entry], current: Option<usize>, filter: Filter, actions: &mut Vec<Action>) {
+/// `review`: Prüfliste statt Eingangsordner (nichts wird überwacht).
+pub fn show(
+    ui: &mut egui::Ui,
+    entries: &[Entry],
+    current: Option<usize>,
+    filter: Filter,
+    review: bool,
+    actions: &mut Vec<Action>,
+) {
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         for (f, label) in [
@@ -31,16 +39,14 @@ pub fn show(ui: &mut egui::Ui, entries: &[Entry], current: Option<usize>, filter
         ui.add_space(4.0);
         // Umbrechen statt abschneiden, wenn die Spalte schmal ist
         ui.horizontal_wrapped(|ui| {
-            let (r, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), Sense::hover());
-            ui.painter().circle_filled(r.center(), 3.5, theme::ok(ui.ctx()));
-            ui.add(
-                egui::Label::new(
-                    RichText::new(tr("Ordner wird überwacht – neue Scans erscheinen automatisch"))
-                        .small()
-                        .weak(),
-                )
-                .wrap(),
-            );
+            let text = if review {
+                tr("Prüfliste: ↵ lernt die Firma, umbenannt wird nichts. Zurück über den Ordner oben.")
+            } else {
+                let (r, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), Sense::hover());
+                ui.painter().circle_filled(r.center(), 3.5, theme::ok(ui.ctx()));
+                tr("Ordner wird überwacht – neue Scans erscheinen automatisch")
+            };
+            ui.add(egui::Label::new(RichText::new(text).small().weak()).wrap());
         });
         ui.add_space(4.0);
     });

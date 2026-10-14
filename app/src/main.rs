@@ -18,6 +18,7 @@ mod settings;
 mod settings_ui;
 mod tags;
 mod theme;
+mod transfer;
 mod update;
 mod worker;
 

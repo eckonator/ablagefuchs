@@ -31,6 +31,11 @@ static ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
 static RECIPIENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^(herrn?|frau|familie|eheleute|an|z\.\s?hd\.?)(\s|$)").unwrap());
 
+/// Anrede-/Empfängerzeile („Herrn“, „Frau“, „z. Hd.“).
+pub fn is_recipient_line(text: &str) -> bool {
+    RECIPIENT.is_match(text)
+}
+
 /// Plausibler Text für Namen und Themen: mindestens drei verschiedene Buchstaben
 /// (filtert Texterkennungs-Unsinn wie „VVVVVVVVI“ aus Handschrift oder Linien).
 pub fn plausible(text: &str) -> bool {

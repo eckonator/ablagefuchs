@@ -12,6 +12,7 @@ pub mod files;
 pub mod invoice;
 pub mod knowledge;
 pub mod layout;
+pub mod loose_name;
 mod model;
 pub mod naming;
 pub mod topic;

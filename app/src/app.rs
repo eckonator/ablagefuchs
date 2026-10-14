@@ -177,6 +177,21 @@ pub enum Action {
     ForgetCompany(usize),
     /// Gesamtes Wissen löschen
     ForgetKnowledge,
+    /// Unternehmen umbenennen
+    RenameCompany(usize, String),
+    /// Unternehmen `from` in `into` zusammenführen
+    MergeCompanies {
+        from: usize,
+        into: usize,
+    },
+    /// Zwei Unternehmen sind kein Doppel
+    DismissDuplicate(String, String),
+    /// Nicht bestätigte Dateien des letzten Lernlaufs durchgehen
+    ReviewUnlearned,
+    /// Einstellungen und Wissen in eine Datei sichern
+    ExportBackup,
+    /// Sicherung von einem anderen Gerät übernehmen
+    ImportBackup,
     /// Thema aus den bekannten Themen übernehmen
     SetTopic(String),
     /// Aktuelle Datei in den Papierkorb (doppelt gescannt)
@@ -221,6 +236,8 @@ pub struct App {
     persist: bool,
     dev: DevTools,
     pub inbox: Option<PathBuf>,
+    /// Prüfliste: nicht gelernte Archivdateien werden nur gelernt, nicht umbenannt
+    pub review: bool,
     journal: Option<Journal>,
     pub entries: Vec<Entry>,
     pub current: Option<usize>,
@@ -236,7 +253,11 @@ pub struct App {
     pub knowledge: std::sync::Arc<af_core::knowledge::Knowledge>,
     knowledge_rev: u64,
     knowledge_file: Option<PathBuf>,
+    /// Welche Archivdateien schon gelernt sind (neben der Wissensdatei)
+    learn_log: af_ocr::archive::LearnLog,
     learning: Option<crate::learning::LearnJob>,
+    /// In der Prüfliste gelernte Dateien, während ein Lernlauf läuft (werden danach im Lernstand nachgetragen)
+    pending_marks: Vec<(PathBuf, String)>,
     /// Korrekturen, die während des Lernens aus einem Ordner anfallen (werden danach nachgetragen)
     pending_corrections: Vec<(NameFields, af_core::LearnInfo, Option<String>)>,
     pub last_learn: Option<af_ocr::archive::LearnStats>,
@@ -271,6 +292,7 @@ impl App {
         let mut app = App {
             persist,
             inbox: None,
+            review: false,
             journal: None,
             entries: Vec::new(),
             current: None,
@@ -284,7 +306,9 @@ impl App {
             knowledge: std::sync::Arc::new(af_core::knowledge::Knowledge::default()),
             knowledge_rev: 1,
             knowledge_file: None,
+            learn_log: af_ocr::archive::LearnLog::default(),
             learning: None,
+            pending_marks: Vec::new(),
             pending_corrections: Vec::new(),
             last_learn: None,
             update_rx: None,
@@ -330,6 +354,12 @@ impl App {
             match af_core::knowledge::Knowledge::load(path) {
                 Ok(k) => app.knowledge = std::sync::Arc::new(k),
                 Err(err) => log::error!("Wissen nicht lesbar ({}): {err}", path.display()),
+            }
+        }
+        if let Some(path) = app.learn_log_file() {
+            match af_ocr::archive::LearnLog::load(&path) {
+                Ok(l) => app.learn_log = l,
+                Err(err) => log::error!("Lernstand nicht lesbar ({}): {err}", path.display()),
             }
         }
         if let Some(page) = app.dev.settings_page.clone() {
@@ -383,7 +413,55 @@ impl App {
             .or(if self.entries.is_empty() { None } else { Some(0) });
         self.settings.remember_inbox(&dir);
         self.inbox = Some(dir);
+        self.review = false;
         self.save_settings();
+    }
+
+    /// Prüfliste: die nicht bestätigten Dateien des letzten Lernlaufs. Kein Eingangsordner, kein Journal,
+    /// ↵ lernt nur (die Dateien im Archiv behalten ihren Namen).
+    fn open_review(&mut self, files: Vec<PathBuf>) {
+        self.entries = files.into_iter().map(|path| self.new_entry(path)).collect();
+        self.journal = None;
+        self.inbox = None;
+        self.review = true;
+        self.undo_stack.clear();
+        self.pending_files.clear();
+        self.current = self.entries.iter().position(Entry::is_open);
+    }
+
+    /// Prüfliste: bestätigte Firma lernen und als gelernt vermerken, dann zur nächsten Datei.
+    fn learn_review(&mut self, ctx: &egui::Context) {
+        let Some(i) = self.current else { return };
+        let e = &self.entries[i];
+        if !e.is_open() || e.fields.unternehmen.trim().is_empty() {
+            return;
+        }
+        let Some(s) = e.suggestion() else {
+            self.show_error(tr("Bitte warten, bis die Datei gelesen ist.").to_string());
+            return;
+        };
+        let replaced = (s.unternehmen.value != e.fields.unternehmen && !s.unternehmen.value.is_empty())
+            .then(|| s.unternehmen.value.clone());
+        let item = (e.fields.clone(), s.learn.clone(), replaced);
+        let path = e.path.clone();
+        let company = e.fields.unternehmen.trim().to_string();
+        self.learn_correction(item);
+        let company = self
+            .knowledge
+            .find_company(&company)
+            .map_or(company, |j| self.knowledge.unternehmen[j].name.clone());
+        if self.learning.is_some() {
+            self.pending_marks.push((path, company.clone()));
+        } else {
+            self.learn_log.mark(&path, &company);
+            self.save_learn_log();
+        }
+        self.entries[i].done = Some(None);
+        self.show_info(ctx, trf("Gelernt: {}", &[&company]), false);
+        match self.next_open_after(i) {
+            Some(next) => self.current = Some(next),
+            None => self.show_info(ctx, tr("Alle Dateien sind erledigt.").into(), false),
+        }
     }
 
     fn new_entry(&mut self, path: PathBuf) -> Entry {
@@ -626,6 +704,10 @@ impl App {
     }
 
     fn accept(&mut self, ctx: &egui::Context) {
+        if self.review {
+            self.learn_review(ctx);
+            return;
+        }
         let Some(i) = self.current else { return };
         let Ok(template) = &self.template else {
             self.show_error(
@@ -804,6 +886,18 @@ impl App {
         self.save_knowledge();
     }
 
+    fn learn_log_file(&self) -> Option<PathBuf> {
+        self.knowledge_file.as_ref().map(|f| f.with_file_name("lernstand.json"))
+    }
+
+    fn save_learn_log(&self) {
+        if let Some(path) = self.learn_log_file()
+            && let Err(err) = self.learn_log.save(&path)
+        {
+            log::error!("Lernstand nicht gespeichert ({}): {err}", path.display());
+        }
+    }
+
     fn save_knowledge(&self) {
         if let Some(path) = &self.knowledge_file
             && let Err(err) = self.knowledge.save(path)
@@ -847,6 +941,9 @@ impl App {
 
     /// Offene Dateien, deren Vorschlag vollständig und in jedem Feld sicher genug ist (unverändert vom Nutzer).
     pub fn batch_candidates(&self) -> Vec<usize> {
+        if self.review {
+            return Vec::new();
+        }
         (0..self.entries.len())
             .filter(|&i| {
                 let e = &self.entries[i];
@@ -866,11 +963,16 @@ impl App {
 
     fn poll_learning(&mut self, ctx: &egui::Context) {
         let Some(job) = &self.learning else { return };
-        let Ok((knowledge, stats)) = job.result.try_recv() else {
+        let Ok((knowledge, learn_log, stats)) = job.result.try_recv() else {
             return;
         };
         self.learning = None;
         self.knowledge = std::sync::Arc::new(knowledge);
+        self.learn_log = learn_log;
+        for (path, company) in std::mem::take(&mut self.pending_marks) {
+            self.learn_log.mark(&path, &company);
+        }
+        self.save_learn_log();
         for item in std::mem::take(&mut self.pending_corrections) {
             std::sync::Arc::make_mut(&mut self.knowledge).learn(
                 &item.0,
@@ -883,8 +985,8 @@ impl App {
         self.show_info(
             ctx,
             trf(
-                "Gelernt aus {} von {} Dateien – {} Unternehmen bekannt",
-                &[&stats.learned, &stats.files, &self.knowledge.unternehmen.len()],
+                "{} Dateien neu gelernt ({} schon bekannt) – {} Unternehmen bekannt",
+                &[&stats.learned, &stats.already, &self.knowledge.unternehmen.len()],
             ),
             false,
         );
@@ -1030,6 +1132,7 @@ impl App {
                         root,
                         template,
                         (*self.knowledge).clone(),
+                        self.learn_log.clone(),
                         ocr,
                     ));
                 }
@@ -1042,13 +1145,127 @@ impl App {
             Action::ForgetCompany(i) => {
                 let k = std::sync::Arc::make_mut(&mut self.knowledge);
                 if i < k.unternehmen.len() {
-                    k.unternehmen.remove(i);
+                    let c = k.unternehmen.remove(i);
+                    // Seine Dateien dürfen beim nächsten Lernlauf wieder gelernt werden
+                    let names: Vec<&str> = std::iter::once(c.name.as_str())
+                        .chain(c.aliase.iter().map(String::as_str))
+                        .collect();
+                    self.learn_log.forget_company(&names);
+                    self.save_learn_log();
                     self.knowledge_changed();
                 }
             }
             Action::ForgetKnowledge => {
                 self.knowledge = std::sync::Arc::new(af_core::knowledge::Knowledge::default());
+                self.learn_log = af_ocr::archive::LearnLog::default();
+                self.save_learn_log();
                 self.knowledge_changed();
+            }
+            Action::RenameCompany(i, name) => {
+                let Some(old) = self.knowledge.unternehmen.get(i).map(|c| c.name.clone()) else {
+                    return;
+                };
+                match std::sync::Arc::make_mut(&mut self.knowledge).rename_company(i, &name) {
+                    Ok(()) => {
+                        self.learn_log.rename_company(&[&old], &name);
+                        self.save_learn_log();
+                        self.knowledge_changed();
+                        self.show_info(ctx, trf("Umbenannt: {} → {}", &[&old, &name]), false);
+                    }
+                    Err(j) => {
+                        let other = self.knowledge.unternehmen[j].name.clone();
+                        self.show_error(trf(
+                            "„{}“ gibt es schon. Zum Vereinen „Zusammenführen mit“ wählen.",
+                            &[&other],
+                        ));
+                    }
+                }
+            }
+            Action::MergeCompanies { from, into } => {
+                let k = &self.knowledge.unternehmen;
+                let (Some(f), Some(t)) = (k.get(from), k.get(into)) else {
+                    return;
+                };
+                let names: Vec<String> = std::iter::once(f.name.clone())
+                    .chain(f.aliase.iter().cloned())
+                    .collect();
+                let target = t.name.clone();
+                std::sync::Arc::make_mut(&mut self.knowledge).merge_companies(from, into);
+                let names: Vec<&str> = names.iter().map(String::as_str).collect();
+                self.learn_log.rename_company(&names, &target);
+                self.save_learn_log();
+                self.knowledge_changed();
+                self.show_info(ctx, trf("Zusammengeführt: {} → {}", &[&names[0], &target]), false);
+            }
+            Action::DismissDuplicate(a, b) => {
+                std::sync::Arc::make_mut(&mut self.knowledge).dismiss_duplicate(&a, &b);
+                self.knowledge_changed();
+            }
+            Action::ReviewUnlearned => {
+                let files: Vec<PathBuf> = self
+                    .last_learn
+                    .as_ref()
+                    .map(|l| l.unconfirmed_files.iter().filter(|p| p.is_file()).cloned().collect())
+                    .unwrap_or_default();
+                if files.is_empty() {
+                    self.show_error(tr("Keine nicht gelernten Dateien gefunden.").to_string());
+                } else {
+                    self.open_review(files);
+                    self.settings_ui.open = false;
+                }
+            }
+            Action::ExportBackup => {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_title(tr("Einstellungen und Wissen exportieren"))
+                    .set_file_name(crate::transfer::default_file_name())
+                    .add_filter("JSON", &["json"])
+                    .save_file()
+                {
+                    match crate::transfer::export(&path, &self.settings, &self.knowledge, &self.learn_log) {
+                        Ok(()) => self.show_info(
+                            ctx,
+                            trf(
+                                "Exportiert: Einstellungen und {} Unternehmen",
+                                &[&self.knowledge.unternehmen.len()],
+                            ),
+                            false,
+                        ),
+                        Err(e) => self.show_error(trf("Export fehlgeschlagen: {}", &[&format!("{e:#}")])),
+                    }
+                }
+            }
+            Action::ImportBackup => {
+                if self.learning.is_some() {
+                    self.show_error(tr("Bitte warten, bis das Lernen fertig ist.").to_string());
+                } else if let Some(path) = rfd::FileDialog::new()
+                    .set_title(tr("Einstellungen und Wissen importieren"))
+                    .add_filter("JSON", &["json"])
+                    .pick_file()
+                {
+                    match crate::transfer::import(&path) {
+                        Ok((settings, knowledge, log)) => {
+                            self.settings = crate::transfer::apply(&self.settings, settings);
+                            self.settings_ui.reload(&self.settings);
+                            let added = std::sync::Arc::make_mut(&mut self.knowledge).merge(knowledge);
+                            // Lernstand ergänzen: Dateien, die dort schon gelernt wurden, nicht noch einmal zählen
+                            for (file, mark) in log.dateien {
+                                self.learn_log.dateien.entry(file).or_insert(mark);
+                            }
+                            self.save_learn_log();
+                            self.knowledge_changed();
+                            self.run(ctx, Action::SettingsChanged);
+                            self.show_info(
+                                ctx,
+                                trf(
+                                    "Importiert: Einstellungen übernommen, {} neue Unternehmen ({} bekannt)",
+                                    &[&added, &self.knowledge.unternehmen.len()],
+                                ),
+                                false,
+                            );
+                        }
+                        Err(e) => self.show_error(trf("Import fehlgeschlagen: {}", &[&format!("{e:#}")])),
+                    }
+                }
             }
             Action::TrashCurrent => {
                 if let Some(i) = self.current
@@ -1178,10 +1395,11 @@ impl App {
             {
                 actions.push(Action::ToggleList);
             }
-            let label = self
-                .inbox
-                .as_ref()
-                .map_or_else(|| tr("Ordner wählen …").to_string(), |d| d.display().to_string());
+            let label = match &self.inbox {
+                _ if self.review => tr("Nicht gelernte Dateien").to_string(),
+                Some(d) => d.display().to_string(),
+                None => tr("Ordner wählen …").to_string(),
+            };
             ui.menu_button(format!("📁 {label}"), |ui| {
                 if ui.button(tr("Ordner wählen …")).clicked() {
                     actions.push(Action::ChooseFolder);
@@ -1467,7 +1685,7 @@ impl eframe::App for App {
                     .default_size(270.0)
                     .min_size(200.0)
                     .show(ui, |ui| {
-                        file_list::show(ui, &self.entries, self.current, self.filter, &mut actions);
+                        file_list::show(ui, &self.entries, self.current, self.filter, self.review, &mut actions);
                     });
             }
             let focus = self.focus.take();
@@ -1505,6 +1723,7 @@ impl eframe::App for App {
                     duplicate: duplicate.as_deref(),
                     meta: &self.settings.meta,
                     meta_preview: &meta_preview,
+                    review: self.review,
                 };
                 egui::Panel::right("formular").exact_size(380.0).show(ui, |ui| {
                     hovered = form::show(ui, &mut self.entries[cur], &fctx, focus, &mut actions);
@@ -1537,6 +1756,7 @@ impl eframe::App for App {
             progress: learn_progress,
             last: self.last_learn.as_ref(),
             file: self.knowledge_file.as_deref(),
+            rev: self.knowledge_rev,
         };
         settings_ui::show(
             &ctx,
