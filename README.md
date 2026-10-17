@@ -56,7 +56,8 @@ avoids this step.
 
 **Windows** (64-bit): unpack the `.zip` and start `Ablagefuchs.exe`.
 
-**Linux** (x86_64): unpack the `.tar.gz` and start `ablagefuchs`. For scans without a text layer
+**Linux** (x86_64): unpack the `.tar.gz` and start `ablagefuchs`, or run `./install.sh` to add it
+with its icon to the application menu (per user; `./install.sh --uninstall` removes it). For scans without a text layer
 install Tesseract with German language data, e.g. `sudo apt install tesseract-ocr tesseract-ocr-deu`.
 
 ## Usage

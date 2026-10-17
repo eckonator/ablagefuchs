@@ -20,7 +20,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "ablagefuchs"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "af-core",
  "af-ocr",
@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "ablagefuchs-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "af-core",
  "af-ocr",
@@ -188,7 +188,7 @@ dependencies = [
 
 [[package]]
 name = "af-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "regex",
@@ -200,7 +200,7 @@ dependencies = [
 
 [[package]]
 name = "af-ocr"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "af-core",
  "af-pdf",
@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "af-pdf"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "af-core",
  "anyhow",
@@ -5241,7 +5241,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "af-pdf",
  "anyhow",

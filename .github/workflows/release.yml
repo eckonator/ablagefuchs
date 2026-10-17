@@ -130,6 +130,7 @@ jobs:
           cp target/release/ablagefuchs target/release/ablagefuchs-cli vendor/pdfium/linux-x64/lib/libpdfium.so \
             assets/ablagefuchs.desktop README.md licenses/* "pkg/$DIR/"
           cp assets/icon-256.png "pkg/$DIR/ablagefuchs.png"
+          cp scripts/install-linux.sh "pkg/$DIR/install.sh"
           cd pkg && tar czf "$DIR.tar.gz" "$DIR" && rm -r "$DIR"
 
       - uses: actions/upload-artifact@v4

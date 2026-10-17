@@ -111,6 +111,8 @@ fn run(
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Ablagefuchs")
+            // Wayland sucht Icon und Namen über die .desktop-Datei mit diesem Namen (assets/ablagefuchs.desktop)
+            .with_app_id("ablagefuchs")
             .with_inner_size(size)
             .with_min_inner_size([1100.0, 650.0])
             .with_icon(
