@@ -1,4 +1,4 @@
-# Ablagefuchs
+<p align="center"><img src="docs/banner.png" alt="Ablagefuchs: rename scanned documents in seconds"></p>
 
 **Rename scanned documents in seconds.** Ablagefuchs shows your scanned PDFs one by one, recognizes
 date, company and topic, and suggests a file name like
